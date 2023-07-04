@@ -1,0 +1,291 @@
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=24, test_batch_size=16, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=False, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_SegS3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/seg_model', visu='', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=24, test_batch_size=16, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=False, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_SegS3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/seg_model', visu='', visu_format='ply')
+Using GPU : 0 from 1 devices
+Train 0, loss: 0.757572, train acc: 0.750033, train avg acc: 0.468067, train iou: 0.364717
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=False, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_SegS3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/seg_model', visu='', visu_format='ply')
+Using GPU : 0 from 1 devices
+Train 0, loss: 0.783315, train acc: 0.742182, train avg acc: 0.458164, train iou: 0.355289
+Test 0, loss: 0.992516, test acc: 0.726404, test avg acc: 0.360725, test iou: 0.286867
+Train 1, loss: 0.533635, train acc: 0.817233, train avg acc: 0.588546, train iou: 0.478820
+Test 1, loss: 0.837991, test acc: 0.729872, test avg acc: 0.421033, test iou: 0.336988
+Train 2, loss: 0.451999, train acc: 0.843468, train avg acc: 0.659343, train iou: 0.547045
+Test 2, loss: 0.647747, test acc: 0.781879, test avg acc: 0.526114, test iou: 0.417687
+Train 3, loss: 0.402548, train acc: 0.859810, train avg acc: 0.702581, train iou: 0.590033
+Test 3, loss: 0.697330, test acc: 0.789209, test avg acc: 0.527303, test iou: 0.412046
+Train 4, loss: 0.373353, train acc: 0.869299, train avg acc: 0.729516, train iou: 0.617762
+Test 4, loss: 0.781196, test acc: 0.761750, test avg acc: 0.483087, test iou: 0.373755
+Train 5, loss: 0.347099, train acc: 0.878444, train avg acc: 0.754910, train iou: 0.643576
+Test 5, loss: 0.821511, test acc: 0.787161, test avg acc: 0.464573, test iou: 0.389767
+Train 6, loss: 0.324447, train acc: 0.885918, train avg acc: 0.774284, train iou: 0.665260
+Test 6, loss: 0.725540, test acc: 0.787730, test avg acc: 0.464346, test iou: 0.395475
+Train 7, loss: 0.308812, train acc: 0.890815, train avg acc: 0.786444, train iou: 0.678667
+Test 7, loss: 0.597311, test acc: 0.804260, test avg acc: 0.534550, test iou: 0.435799
+Train 8, loss: 0.299289, train acc: 0.894677, train avg acc: 0.794029, train iou: 0.687505
+Test 8, loss: 0.993789, test acc: 0.733468, test avg acc: 0.458225, test iou: 0.356002
+Train 9, loss: 0.288048, train acc: 0.898419, train avg acc: 0.804130, train iou: 0.699361
+Test 9, loss: 0.653519, test acc: 0.799180, test avg acc: 0.502427, test iou: 0.426882
+Train 10, loss: 0.277709, train acc: 0.901818, train avg acc: 0.812084, train iou: 0.708685
+Test 10, loss: 0.694228, test acc: 0.801507, test avg acc: 0.514814, test iou: 0.421734
+Train 11, loss: 0.270087, train acc: 0.904215, train avg acc: 0.818873, train iou: 0.717107
+Test 11, loss: 0.702104, test acc: 0.793842, test avg acc: 0.507431, test iou: 0.421349
+Train 12, loss: 0.263721, train acc: 0.906498, train avg acc: 0.823032, train iou: 0.721126
+Test 12, loss: 0.874123, test acc: 0.755605, test avg acc: 0.584561, test iou: 0.423729
+Train 13, loss: 0.255356, train acc: 0.908920, train avg acc: 0.830216, train iou: 0.730017
+Test 13, loss: 0.689911, test acc: 0.784257, test avg acc: 0.567647, test iou: 0.428774
+Train 14, loss: 0.247475, train acc: 0.912079, train avg acc: 0.836402, train iou: 0.738280
+Test 14, loss: 0.670834, test acc: 0.805485, test avg acc: 0.523316, test iou: 0.426318
+Train 15, loss: 0.239791, train acc: 0.914531, train avg acc: 0.839750, train iou: 0.742293
+Test 15, loss: 0.682618, test acc: 0.799286, test avg acc: 0.510148, test iou: 0.436852
+Train 16, loss: 0.237580, train acc: 0.915674, train avg acc: 0.843082, train iou: 0.746508
+Test 16, loss: 0.988029, test acc: 0.749198, test avg acc: 0.385438, test iou: 0.322255
+Train 17, loss: 0.237753, train acc: 0.915630, train avg acc: 0.846861, train iou: 0.750603
+Test 17, loss: 0.718434, test acc: 0.803682, test avg acc: 0.472297, test iou: 0.398014
+Train 18, loss: 0.232132, train acc: 0.917271, train avg acc: 0.847753, train iou: 0.752340
+Test 18, loss: 0.599743, test acc: 0.810099, test avg acc: 0.553599, test iou: 0.441736
+Train 19, loss: 0.223731, train acc: 0.920481, train avg acc: 0.853781, train iou: 0.760618
+Test 19, loss: 1.001566, test acc: 0.727393, test avg acc: 0.508411, test iou: 0.395547
+Train 20, loss: 0.224448, train acc: 0.920405, train avg acc: 0.853540, train iou: 0.759980
+Test 20, loss: 1.502431, test acc: 0.571925, test avg acc: 0.397045, test iou: 0.299299
+Train 21, loss: 0.226370, train acc: 0.919694, train avg acc: 0.853740, train iou: 0.760666
+Test 21, loss: 0.724440, test acc: 0.792700, test avg acc: 0.564335, test iou: 0.438685
+Train 22, loss: 0.216934, train acc: 0.922840, train avg acc: 0.860466, train iou: 0.769285
+Test 22, loss: 0.904113, test acc: 0.781871, test avg acc: 0.493186, test iou: 0.398041
+Train 23, loss: 0.213006, train acc: 0.924327, train avg acc: 0.862235, train iou: 0.772100
+Test 23, loss: 0.603684, test acc: 0.823436, test avg acc: 0.558261, test iou: 0.464161
+Train 24, loss: 0.209898, train acc: 0.925513, train avg acc: 0.864889, train iou: 0.776295
+Test 24, loss: 0.782717, test acc: 0.798702, test avg acc: 0.474639, test iou: 0.410166
+Train 25, loss: 0.209522, train acc: 0.925147, train avg acc: 0.867043, train iou: 0.777666
+Test 25, loss: 0.744394, test acc: 0.800429, test avg acc: 0.511728, test iou: 0.428266
+Train 26, loss: 0.209887, train acc: 0.925713, train avg acc: 0.865697, train iou: 0.777286
+Test 26, loss: 1.076807, test acc: 0.746639, test avg acc: 0.487867, test iou: 0.391090
+Train 27, loss: 0.203212, train acc: 0.927410, train avg acc: 0.869486, train iou: 0.781085
+Test 27, loss: 0.686586, test acc: 0.805096, test avg acc: 0.521932, test iou: 0.438243
+Train 28, loss: 0.198363, train acc: 0.929143, train avg acc: 0.873607, train iou: 0.786896
+Test 28, loss: 0.891579, test acc: 0.772444, test avg acc: 0.469028, test iou: 0.390416
+Train 29, loss: 0.196034, train acc: 0.930236, train avg acc: 0.875242, train iou: 0.790368
+Test 29, loss: 0.693360, test acc: 0.780004, test avg acc: 0.552465, test iou: 0.434101
+Train 30, loss: 0.195191, train acc: 0.930540, train avg acc: 0.877133, train iou: 0.791895
+Test 30, loss: 1.079169, test acc: 0.770149, test avg acc: 0.457059, test iou: 0.378455
+Train 31, loss: 0.190594, train acc: 0.932343, train avg acc: 0.879801, train iou: 0.796190
+Test 31, loss: 0.666611, test acc: 0.822416, test avg acc: 0.493530, test iou: 0.431152
+Train 32, loss: 0.183124, train acc: 0.934852, train avg acc: 0.886404, train iou: 0.804315
+Test 32, loss: 0.798033, test acc: 0.805356, test avg acc: 0.498355, test iou: 0.424048
+Train 33, loss: 0.181601, train acc: 0.935083, train avg acc: 0.884048, train iou: 0.802267
+Test 33, loss: 0.695362, test acc: 0.823994, test avg acc: 0.515656, test iou: 0.449203
+Train 34, loss: 0.181828, train acc: 0.935117, train avg acc: 0.886673, train iou: 0.805259
+Test 34, loss: 0.933505, test acc: 0.745020, test avg acc: 0.502085, test iou: 0.392892
+Train 35, loss: 0.175864, train acc: 0.937394, train avg acc: 0.890556, train iou: 0.810760
+Test 35, loss: 0.683647, test acc: 0.809772, test avg acc: 0.534959, test iou: 0.442840
+Train 36, loss: 0.181241, train acc: 0.935227, train avg acc: 0.885530, train iou: 0.804029
+Test 36, loss: 0.644719, test acc: 0.809311, test avg acc: 0.585000, test iou: 0.465897
+Train 37, loss: 0.178751, train acc: 0.936256, train avg acc: 0.888578, train iou: 0.808403
+Test 37, loss: 0.968295, test acc: 0.780249, test avg acc: 0.411324, test iou: 0.351894
+Train 38, loss: 0.169135, train acc: 0.939766, train avg acc: 0.896105, train iou: 0.818701
+Test 38, loss: 0.812817, test acc: 0.789959, test avg acc: 0.540239, test iou: 0.423152
+Train 39, loss: 0.170448, train acc: 0.939175, train avg acc: 0.894224, train iou: 0.816452
+Test 39, loss: 0.715090, test acc: 0.808164, test avg acc: 0.553956, test iou: 0.449908
+Train 40, loss: 0.157359, train acc: 0.943830, train avg acc: 0.903863, train iou: 0.830582
+Test 40, loss: 0.783158, test acc: 0.822142, test avg acc: 0.495538, test iou: 0.422069
+Train 41, loss: 0.165086, train acc: 0.941132, train avg acc: 0.896176, train iou: 0.820144
+Test 41, loss: 0.885897, test acc: 0.793985, test avg acc: 0.468926, test iou: 0.404286
+Train 42, loss: 0.160203, train acc: 0.942791, train avg acc: 0.900886, train iou: 0.826057
+Test 42, loss: 0.974367, test acc: 0.729580, test avg acc: 0.442492, test iou: 0.367674
+Train 43, loss: 0.159704, train acc: 0.943065, train avg acc: 0.904124, train iou: 0.831036
+Test 43, loss: 0.992023, test acc: 0.788311, test avg acc: 0.508188, test iou: 0.401907
+Train 44, loss: 0.156230, train acc: 0.944330, train avg acc: 0.903509, train iou: 0.830936
+Test 44, loss: 1.014961, test acc: 0.731948, test avg acc: 0.591986, test iou: 0.419416
+Train 45, loss: 0.160494, train acc: 0.942730, train avg acc: 0.902807, train iou: 0.828738
+Test 45, loss: 0.750230, test acc: 0.776628, test avg acc: 0.561732, test iou: 0.430467
+Train 46, loss: 0.154317, train acc: 0.944887, train avg acc: 0.906080, train iou: 0.834482
+Test 46, loss: 0.803315, test acc: 0.794719, test avg acc: 0.561088, test iou: 0.444233
+Train 47, loss: 0.143713, train acc: 0.948424, train avg acc: 0.912085, train iou: 0.843787
+Test 47, loss: 1.172863, test acc: 0.773585, test avg acc: 0.468496, test iou: 0.389563
+Train 48, loss: 0.137344, train acc: 0.950968, train avg acc: 0.916307, train iou: 0.850011
+Test 48, loss: 0.647637, test acc: 0.813352, test avg acc: 0.594642, test iou: 0.468590
+Train 49, loss: 0.139668, train acc: 0.950112, train avg acc: 0.916960, train iou: 0.850407
+Test 49, loss: 0.785650, test acc: 0.803407, test avg acc: 0.513670, test iou: 0.426722
+Train 50, loss: 0.146858, train acc: 0.947539, train avg acc: 0.912237, train iou: 0.843585
+Test 50, loss: 0.691454, test acc: 0.796707, test avg acc: 0.551070, test iou: 0.456683
+Train 51, loss: 0.132980, train acc: 0.952542, train avg acc: 0.921194, train iou: 0.856911
+Test 51, loss: 0.780187, test acc: 0.805207, test avg acc: 0.479902, test iou: 0.416753
+Train 52, loss: 0.141058, train acc: 0.950153, train avg acc: 0.915796, train iou: 0.850168
+Test 52, loss: 0.832073, test acc: 0.782892, test avg acc: 0.533567, test iou: 0.407212
+Train 53, loss: 0.130651, train acc: 0.953431, train avg acc: 0.923100, train iou: 0.860704
+Test 53, loss: 0.766511, test acc: 0.816913, test avg acc: 0.507765, test iou: 0.434704
+Train 54, loss: 0.125287, train acc: 0.955061, train avg acc: 0.924900, train iou: 0.863335
+Test 54, loss: 0.680825, test acc: 0.812177, test avg acc: 0.541623, test iou: 0.454051
+Train 55, loss: 0.127779, train acc: 0.953935, train avg acc: 0.923887, train iou: 0.861969
+Test 55, loss: 0.755212, test acc: 0.830194, test avg acc: 0.545523, test iou: 0.454036
+Train 56, loss: 0.117524, train acc: 0.957913, train avg acc: 0.930759, train iou: 0.873182
+Test 56, loss: 0.723225, test acc: 0.814752, test avg acc: 0.555640, test iou: 0.458770
+Train 57, loss: 0.117163, train acc: 0.957933, train avg acc: 0.931036, train iou: 0.873340
+Test 57, loss: 1.950740, test acc: 0.621854, test avg acc: 0.322895, test iou: 0.247770
+Train 58, loss: 0.114829, train acc: 0.958775, train avg acc: 0.932687, train iou: 0.876136
+Test 58, loss: 0.899734, test acc: 0.802374, test avg acc: 0.551343, test iou: 0.445377
+Train 59, loss: 0.111490, train acc: 0.960053, train avg acc: 0.935656, train iou: 0.880127
+Test 59, loss: 0.972088, test acc: 0.803210, test avg acc: 0.467444, test iou: 0.406207
+Train 60, loss: 0.112978, train acc: 0.959608, train avg acc: 0.934069, train iou: 0.877667
+Test 60, loss: 0.695336, test acc: 0.825655, test avg acc: 0.536235, test iou: 0.465244
+Train 61, loss: 0.115522, train acc: 0.958558, train avg acc: 0.931977, train iou: 0.875056
+Test 61, loss: 0.802840, test acc: 0.810815, test avg acc: 0.491304, test iou: 0.426003
+Train 62, loss: 0.102526, train acc: 0.963195, train avg acc: 0.941110, train iou: 0.889493
+Test 62, loss: 0.706953, test acc: 0.831547, test avg acc: 0.529205, test iou: 0.459097
+Train 63, loss: 0.108466, train acc: 0.961033, train avg acc: 0.938427, train iou: 0.885689
+Test 63, loss: 0.796723, test acc: 0.803516, test avg acc: 0.540741, test iou: 0.447878
+Train 64, loss: 0.098276, train acc: 0.964607, train avg acc: 0.943895, train iou: 0.894547
+Test 64, loss: 2.414973, test acc: 0.597945, test avg acc: 0.332972, test iou: 0.262520
+Train 65, loss: 0.102656, train acc: 0.963180, train avg acc: 0.941943, train iou: 0.891171
+Test 65, loss: 0.746027, test acc: 0.827838, test avg acc: 0.526363, test iou: 0.453409
+Train 66, loss: 0.094055, train acc: 0.966193, train avg acc: 0.945857, train iou: 0.897663
+Test 66, loss: 0.717462, test acc: 0.821959, test avg acc: 0.563770, test iou: 0.479730
+Train 67, loss: 0.091062, train acc: 0.967119, train avg acc: 0.947182, train iou: 0.900424
+Test 67, loss: 0.705860, test acc: 0.832615, test avg acc: 0.534959, test iou: 0.463829
+Train 68, loss: 0.086626, train acc: 0.968792, train avg acc: 0.951161, train iou: 0.907006
+Test 68, loss: 0.714484, test acc: 0.824653, test avg acc: 0.563207, test iou: 0.466247
+Train 69, loss: 0.089318, train acc: 0.968071, train avg acc: 0.950211, train iou: 0.905795
+Test 69, loss: 0.753592, test acc: 0.824026, test avg acc: 0.525286, test iou: 0.457299
+Train 70, loss: 0.083934, train acc: 0.969761, train avg acc: 0.953055, train iou: 0.910226
+Test 70, loss: 0.634280, test acc: 0.839083, test avg acc: 0.597156, test iou: 0.501431
+Train 71, loss: 0.081420, train acc: 0.970646, train avg acc: 0.954521, train iou: 0.912621
+Test 71, loss: 0.708025, test acc: 0.822991, test avg acc: 0.587766, test iou: 0.489819
+Train 72, loss: 0.078293, train acc: 0.971679, train avg acc: 0.956399, train iou: 0.915782
+Test 72, loss: 0.740413, test acc: 0.832100, test avg acc: 0.525018, test iou: 0.452683
+Train 73, loss: 0.075828, train acc: 0.972560, train avg acc: 0.957865, train iou: 0.918996
+Test 73, loss: 0.797555, test acc: 0.823788, test avg acc: 0.537726, test iou: 0.448111
+Train 74, loss: 0.073663, train acc: 0.973303, train avg acc: 0.958919, train iou: 0.920694
+Test 74, loss: 0.686126, test acc: 0.836265, test avg acc: 0.560568, test iou: 0.484605
+Train 75, loss: 0.072593, train acc: 0.973742, train avg acc: 0.960294, train iou: 0.923082
+Test 75, loss: 0.855812, test acc: 0.816981, test avg acc: 0.521861, test iou: 0.443956
+Train 76, loss: 0.070757, train acc: 0.974271, train avg acc: 0.961431, train iou: 0.925178
+Test 76, loss: 0.729227, test acc: 0.836832, test avg acc: 0.530293, test iou: 0.465557
+Train 77, loss: 0.069335, train acc: 0.974844, train avg acc: 0.961461, train iou: 0.925780
+Test 77, loss: 0.684877, test acc: 0.843168, test avg acc: 0.573309, test iou: 0.484047
+Train 78, loss: 0.066947, train acc: 0.975680, train avg acc: 0.963202, train iou: 0.928465
+Test 78, loss: 0.684154, test acc: 0.841354, test avg acc: 0.559136, test iou: 0.486533
+Train 79, loss: 0.065334, train acc: 0.976226, train avg acc: 0.964061, train iou: 0.930090
+Test 79, loss: 0.747355, test acc: 0.831380, test avg acc: 0.552310, test iou: 0.477018
+Train 80, loss: 0.064181, train acc: 0.976684, train avg acc: 0.964962, train iou: 0.931569
+Test 80, loss: 0.762923, test acc: 0.832575, test avg acc: 0.561709, test iou: 0.482736
+Train 81, loss: 0.062821, train acc: 0.977150, train avg acc: 0.966019, train iou: 0.933745
+Test 81, loss: 0.747892, test acc: 0.836966, test avg acc: 0.549854, test iou: 0.474440
+Train 82, loss: 0.061679, train acc: 0.977535, train avg acc: 0.966190, train iou: 0.934459
+Test 82, loss: 0.717910, test acc: 0.840062, test avg acc: 0.544021, test iou: 0.478782
+Train 83, loss: 0.059691, train acc: 0.978287, train avg acc: 0.967809, train iou: 0.936958
+Test 83, loss: 0.838474, test acc: 0.828259, test avg acc: 0.535061, test iou: 0.457333
+Train 84, loss: 0.058856, train acc: 0.978546, train avg acc: 0.968250, train iou: 0.937913
+Test 84, loss: 0.761926, test acc: 0.832387, test avg acc: 0.553036, test iou: 0.480178
+Train 85, loss: 0.057653, train acc: 0.979040, train avg acc: 0.968915, train iou: 0.939179
+Test 85, loss: 0.722059, test acc: 0.841391, test avg acc: 0.567165, test iou: 0.481077
+Train 86, loss: 0.056749, train acc: 0.979318, train avg acc: 0.969458, train iou: 0.939987
+Test 86, loss: 0.726596, test acc: 0.840818, test avg acc: 0.561384, test iou: 0.483854
+Train 87, loss: 0.055593, train acc: 0.979756, train avg acc: 0.970442, train iou: 0.942049
+Test 87, loss: 0.729600, test acc: 0.838240, test avg acc: 0.586985, test iou: 0.493917
+Train 88, loss: 0.055254, train acc: 0.979853, train avg acc: 0.970226, train iou: 0.941929
+Test 88, loss: 0.726344, test acc: 0.842260, test avg acc: 0.550665, test iou: 0.475402
+Train 89, loss: 0.054449, train acc: 0.980136, train avg acc: 0.970847, train iou: 0.942892
+Test 89, loss: 0.694905, test acc: 0.843240, test avg acc: 0.568663, test iou: 0.489111
+Train 90, loss: 0.053594, train acc: 0.980437, train avg acc: 0.971598, train iou: 0.943874
+Test 90, loss: 0.762527, test acc: 0.838419, test avg acc: 0.557311, test iou: 0.482373
+Train 91, loss: 0.053267, train acc: 0.980547, train avg acc: 0.971322, train iou: 0.944046
+Test 91, loss: 0.710778, test acc: 0.843526, test avg acc: 0.568411, test iou: 0.488686
+Train 92, loss: 0.052550, train acc: 0.980805, train avg acc: 0.971827, train iou: 0.944792
+Test 92, loss: 0.712255, test acc: 0.842698, test avg acc: 0.562186, test iou: 0.487158
+Train 93, loss: 0.052135, train acc: 0.980960, train avg acc: 0.972234, train iou: 0.945474
+Test 93, loss: 0.726160, test acc: 0.842542, test avg acc: 0.562259, test iou: 0.486718
+Train 94, loss: 0.051750, train acc: 0.981133, train avg acc: 0.972283, train iou: 0.945879
+Test 94, loss: 0.709899, test acc: 0.844356, test avg acc: 0.563007, test iou: 0.488223
+Train 95, loss: 0.051810, train acc: 0.981111, train avg acc: 0.972426, train iou: 0.945809
+Test 95, loss: 0.724087, test acc: 0.842906, test avg acc: 0.562013, test iou: 0.487827
+Train 96, loss: 0.051299, train acc: 0.981297, train avg acc: 0.972618, train iou: 0.946472
+Test 96, loss: 0.740030, test acc: 0.839799, test avg acc: 0.559127, test iou: 0.481337
+Train 97, loss: 0.050810, train acc: 0.981439, train avg acc: 0.973073, train iou: 0.946947
+Test 97, loss: 0.729206, test acc: 0.841936, test avg acc: 0.560035, test iou: 0.485083
+Train 98, loss: 0.051027, train acc: 0.981375, train avg acc: 0.973035, train iou: 0.946852
+Test 98, loss: 0.744849, test acc: 0.840535, test avg acc: 0.560488, test iou: 0.483860
+Train 99, loss: 0.051050, train acc: 0.981352, train avg acc: 0.972718, train iou: 0.946486
+Test 99, loss: 0.724815, test acc: 0.843169, test avg acc: 0.563918, test iou: 0.487273
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_SegS3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/seg_model', visu='', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis', visu='', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='', visu_format='ply')
+Using GPU : 0 from 1 devices
+Test :: test area: 5, test acc: 0.839554, test avg acc: 0.595044, test iou: 0.500723
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='all', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='5', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='Area_5', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='Area_5_office_6', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='Area_5_office_6', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='all', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='all', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='all', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='all', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='area_5', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='area_5', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='area_5', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='area_5', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='area_5', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='area_5', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='area_5', visu_format='ply')
+Using GPU : 0 from 1 devices
+Test :: test area: 5, test acc: 0.839554, test avg acc: 0.595044, test iou: 0.500723
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='area_5', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='area_5', visu_format='ply')
+Using GPU : 0 from 1 devices
+Test :: test area: 5, test acc: 0.839554, test avg acc: 0.595044, test iou: 0.500723
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='area_5', visu_format='ply')
+Using GPU : 0 from 1 devices
+Test :: test area: 5, test acc: 0.844949, test avg acc: 0.604346, test iou: 0.510006
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='area_5', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='area_5', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='area_5', visu_format='ply')
+Using GPU : 0 from 1 devices
+Test :: test area: 5, test acc: 0.859147, test avg acc: 0.638259, test iou: 0.539475
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='area_5', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='area_5', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='area_5', visu_format='ply')
+Using GPU : 0 from 1 devices
+Test :: test area: 5, test acc: 0.859147, test avg acc: 0.638259, test iou: 0.539475
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='area_5', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='area_5', visu_format='ply')
+Using GPU : 0 from 1 devices
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='area_5', visu_format='ply')
+Using GPU : 0 from 1 devices
+Test :: test area: 5, test acc: 0.898483, test avg acc: 0.739583, test iou: 0.630484
+Namespace(root='/data/disk1/data/Stanford3dDataset', exp_name='dgcnn_SegS3dis', model='dgcnn', dataset='S3DIS', num_clus=64, restore=False, test_area='5', batch_size=20, test_batch_size=8, epochs=100, use_sgd=True, lr=0.001, momentum=0.9, scheduler='cos', no_cuda=False, seed=1, eval=True, num_points=4096, dropout=0.5, emb_dims=1024, k=20, pretrained_path='checkpoints/dgcnn_segs3dis/models/best_model.pth', model_root='checkpoints/dgcnn_SegS3dis/models', visu='area_5', visu_format='ply')
+Using GPU : 0 from 1 devices
+Test :: test area: 5, test acc: 0.898483, test avg acc: 0.739583, test iou: 0.630484
