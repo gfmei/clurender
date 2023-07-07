@@ -46,9 +46,7 @@ class TransformerDownSampling(nn.Module):
         self.conv = nn.Conv1d(in_dim, out_dim, kernel_size=1)
 
     def forward(self, points, features):
-        features = self.conv(features)
-        points = points.transpose(-1, -2)
-        features = features.transpose(-1, -2)
+        features = self.conv(features.transpose(-1, -2)).transpose(-1, -2)
         idx = farthest_point_sample(points, self.num_points, is_center=self.is_center)
 
         sampled_points = index_points(points, idx)
@@ -57,20 +55,41 @@ class TransformerDownSampling(nn.Module):
         return sampled_points, sampled_features
 
 
-class TransformerPropagation(nn.Module):
+class TransformerUpSampling(nn.Module):
     def __init__(self, dim_in, dim_out):
-        super(TransformerPropagation, self).__init__()
+        super(TransformerUpSampling, self).__init__()
         self.conv1 = nn.Conv1d(dim_in, dim_out, kernel_size=1)
         self.transformer1 = TransformerLayer(dim_out, dim_out)
         self.conv2 = nn.Conv1d(dim_out, dim_out, kernel_size=1)
         self.transformer2 = TransformerLayer(dim_out, dim_out)
 
-    def forward(self, x, skip_connection):
-        x = self.conv1(x)
-        x = self.transformer1(x)
-        x = self.conv2(x)
-        x = self.transformer2(x)
+    def forward(self, xyz1, xyz2, features1, features2):
+        features2 = features2.permute(0, 2, 1)
+        B, N, C = xyz1.shape
+        _, S, _ = xyz2.shape
 
+        if S == 1:
+            interpolated_feastures = features2.repeat(1, N, 1)
+        else:
+            dists = square_distance(xyz1, xyz2)
+            dists, idx = dists.sort(dim=-1)
+            dists, idx = dists[:, :, :3], idx[:, :, :3]  # [B, N, 3]
+
+            dist_recip = 1.0 / (dists + 1e-8)
+            norm = torch.sum(dist_recip, dim=2, keepdim=True)
+            weight = dist_recip / norm
+            interpolated_feastures = torch.sum(index_points(features2, idx) * weight.view(B, N, 3, 1), dim=2)
+
+        if features1 is not None:
+            new_featuress = torch.cat([features1, interpolated_feastures], dim=-1)
+        else:
+            new_featuress = interpolated_feastures
+
+        new_featuress = new_featuress.permute(0, 2, 1)
+        for i, conv in enumerate(self.mlp_convs):
+            bn = self.mlp_bns[i]
+            new_featuress = F.relu(bn(conv(new_featuress)))
+        return new_featuress
         # Upsample and concatenate skip connection
         upsampled = F.interpolate(x, scale_factor=4, mode='linear', align_corners=False)
         merged = torch.cat([upsampled, skip_connection], dim=1)
@@ -114,7 +133,7 @@ class UNetTransformer(nn.Module):
 
         # Upsampling layers
         for i in range(self.num_stages):
-            self.upsampling.append(TransformerPropagation(self.is_center))
+            self.upsampling.append(TransformerUpSampling(self.is_center))
             self.decoder_layers.append(TransformerEncoderLayer(d_dims[-1], 8))
             in_channels *= 2
 
@@ -146,7 +165,7 @@ class UNetTransformer(nn.Module):
 
 class PointFeaturePropagation(nn.Module):
     def __init__(self):
-        super(TransformerPropagation, self).__init__()
+        super(TransformerUpSampling, self).__init__()
 
     def forward(self, sampled_points, upsampled_points, features):
         # Point Feature Propagation implementation
