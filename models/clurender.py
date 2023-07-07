@@ -9,7 +9,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import TransformerEncoderLayer
-from torch_geometric.nn import knn_interpolate
 
 from models.common import (square_distance, sinkhorn, get_module_device, feature_transform_regularizer,
                            transform_points_tsfm, points_to_ndc, farthest_point_sample, index_points)
@@ -43,7 +42,11 @@ class TransformerDownSampling(nn.Module):
         super(TransformerDownSampling, self).__init__()
         self.num_points = num_points
         self.is_center = is_center
-        self.conv = nn.Conv1d(in_dim, out_dim, kernel_size=1)
+        self.conv = nn.Sequential(
+            nn.Conv1d(in_dim, out_dim, kernel_size=1),
+            nn.InstanceNorm1d(out_dim),
+            nn.ReLU()
+        )
 
     def forward(self, points, features):
         features = self.conv(features.transpose(-1, -2)).transpose(-1, -2)
@@ -56,15 +59,15 @@ class TransformerDownSampling(nn.Module):
 
 
 class TransformerUpSampling(nn.Module):
-    def __init__(self, dim_in, dim_out):
+    def __init__(self, in_dim, out_dim):
         super(TransformerUpSampling, self).__init__()
-        self.conv1 = nn.Conv1d(dim_in, dim_out, kernel_size=1)
-        self.transformer1 = TransformerLayer(dim_out, dim_out)
-        self.conv2 = nn.Conv1d(dim_out, dim_out, kernel_size=1)
-        self.transformer2 = TransformerLayer(dim_out, dim_out)
+        self.conv = nn.Sequential(
+            nn.Conv1d(in_dim, out_dim, kernel_size=1),
+            nn.InstanceNorm1d(out_dim),
+            nn.ReLU()
+        )
 
     def forward(self, xyz1, xyz2, features1, features2):
-        features2 = features2.permute(0, 2, 1)
         B, N, C = xyz1.shape
         _, S, _ = xyz2.shape
 
@@ -84,33 +87,10 @@ class TransformerUpSampling(nn.Module):
             new_featuress = torch.cat([features1, interpolated_feastures], dim=-1)
         else:
             new_featuress = interpolated_feastures
-
         new_featuress = new_featuress.permute(0, 2, 1)
-        for i, conv in enumerate(self.mlp_convs):
-            bn = self.mlp_bns[i]
-            new_featuress = F.relu(bn(conv(new_featuress)))
-        return new_featuress
-        # Upsample and concatenate skip connection
-        upsampled = F.interpolate(x, scale_factor=4, mode='linear', align_corners=False)
-        merged = torch.cat([upsampled, skip_connection], dim=1)
+        new_featuress = self.conv(new_featuress)
 
-        return merged
-
-
-class PointTransformer(nn.Module):
-    def __init__(self, dim_in, dim_out):
-        super(PointTransformer, self).__init__()
-        self.conv1 = nn.Conv1d(dim_in, dim_out, kernel_size=1)
-        self.transformer1 = TransformerLayer(dim_out, dim_out)
-        self.conv2 = nn.Conv1d(dim_out, dim_out, kernel_size=1)
-        self.transformer2 = TransformerLayer(dim_out, dim_out)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.transformer1(x)
-        x = self.conv2(x)
-        x = self.transformer2(x)
-        return x
+        return new_featuress.permute(0, 2, 1)
 
 
 class UNetTransformer(nn.Module):
@@ -133,44 +113,34 @@ class UNetTransformer(nn.Module):
 
         # Upsampling layers
         for i in range(self.num_stages):
-            self.upsampling.append(TransformerUpSampling(self.is_center))
-            self.decoder_layers.append(TransformerEncoderLayer(d_dims[-1], 8))
-            in_channels *= 2
-
-        self.final_conv = nn.Conv1d(in_channels, out_channels, kernel_size=1)
+            in_channels = d_dims[self.num_stages - i - 1] + d_dims[self.num_stages - i - 2]
+            self.upsampling.append(TransformerUpSampling(in_channels, u_dims[i]))
+            self.decoder_layers.append(TransformerEncoderLayer(u_dims[i], num_heads))
+        self.final_conv = nn.Conv1d(u_dims[-1], out_channels, kernel_size=1)
+        print(u_dims[-1], u_dims[self.num_stages-1])
 
     def forward(self, points, features):
         skip_connections = []
-
         # Downsample
         sampled_points = points
-        ds_features = self.conv(features)
+        ds_features = self.conv(features.transpose(-1, -2)).transpose(-1, -2)
         for i in range(self.num_stages):
             # sample points and features
-            sampled_points, sampled_points = self.downsampling[i](sampled_points, ds_features)
-            skip_connections.append((sampled_points, sampled_points))
+            sampled_points, ds_features = self.downsampling[i](sampled_points, ds_features)
+            skip_connections.append((sampled_points, ds_features))
             ds_features = self.encoder_layers[i](ds_features)
 
         # Upsample
-        for i in range(self.num_stages - 1, -1, -1):
-            features = self.upsampling[i](sampled_points, features)
-            features += skip_connections[i]
+        for i in range(self.num_stages):
+            xyz1, features1 = skip_connections[self.num_stages - i - 1]
+            xyz2, features2 = skip_connections[self.num_stages - i - 2]
+            features = self.upsampling[i](xyz1, xyz2, features1, features2)
             features = self.decoder_layers[i](features)
 
         # Final convolution
-        output = self.final_conv(features)
+        output = self.final_conv(features.transpose(-1, -2))
 
         return output
-
-
-class PointFeaturePropagation(nn.Module):
-    def __init__(self):
-        super(TransformerUpSampling, self).__init__()
-
-    def forward(self, sampled_points, upsampled_points, features):
-        # Point Feature Propagation implementation
-        upsampled_features = knn_interpolate(features, sampled_points, upsampled_points)
-        return upsampled_features
 
 
 def ot_assign(x, y, epsilon=1e-3, thresh=1e-3, max_iter=30, dst='fe'):
@@ -418,11 +388,12 @@ class CluRender(nn.Module):
 
 if __name__ == '__main__':
     # Example usage
-    in_channels = 3
+    in_channels = 32
     out_channels = 1
     N = 1024  # Number of input points
-    points = torch.randn(N, 3)  # Input point coordinates
-    features = torch.randn(N, in_channels)  # Input point features
+    num_samples_list = [512, 256, 128]
+    points = torch.randn(2, N, 3)  # Input point coordinates
+    features = torch.randn(2, N, in_channels)  # Input point features
 
-    model = UNetTransformer(in_channels, out_channels)
+    model = UNetTransformer(in_channels, out_channels, num_samples_list, [32, 64, 128], [128, 64, 32], 2)
     output = model(points, features)
