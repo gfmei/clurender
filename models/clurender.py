@@ -38,11 +38,12 @@ class TransformerLayer(nn.Module):
         return attn_output + x
 
 
-class FurthestDownSampling(nn.Module):
-    def __init__(self, num_points, is_center=True):
-        super(FurthestDownSampling, self).__init__()
+class TransformerDownSampling(nn.Module):
+    def __init__(self, in_dim, out_dim, num_points, is_center=True):
+        super(TransformerDownSampling, self).__init__()
         self.num_points = num_points
         self.is_center = is_center
+        self.conv = nn.Conv1d(in_dim, out_dim, kernel_size=1)
 
     def forward(self, points, features):
         points = points.transpose(-1, -2)
@@ -105,7 +106,9 @@ class UNetTransformer(nn.Module):
         # Downsampling layers
         self.conv = nn.Conv1d(in_channels, d_dims[0], kernel_size=1)
         for i in range(self.num_stages):
-            self.downsampling.append(FurthestDownSampling(num_samples_list[i], self.is_center))
+            self.downsampling.append(
+                TransformerDownSampling(in_channels, d_dims[i], num_samples_list[i], self.is_center))
+            in_channels = d_dims[i]
             self.encoder_layers.append(TransformerEncoderLayer(d_dims[i], num_heads))
 
         # Upsampling layers
