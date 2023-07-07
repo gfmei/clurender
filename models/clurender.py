@@ -55,8 +55,6 @@ class TransformerDownSampling(nn.Module):
 
         return sampled_points, sampled_features
 
-    ssh - ed25519AAAAC3NzaC1lZDI1NTE5AAAAICd27m4UMt25 + NQDjILACL525fzz8bdkq1xS2GcHBJ9H
-
 
 class TransformerPropagation(nn.Module):
     def __init__(self, dim_in, dim_out):
