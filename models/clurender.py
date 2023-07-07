@@ -48,6 +48,7 @@ class TransformerDownSampling(nn.Module):
     def forward(self, points, features):
         points = points.transpose(-1, -2)
         features = features.transpose(-1, -2)
+        features = self.conv(features)
         idx = farthest_point_sample(points, self.num_points, is_center=self.is_center)
 
         sampled_points = index_points(points, idx)
