@@ -1,7 +1,6 @@
 import sys
 
 from timm.models.layers import trunc_normal_
-from torch import nn
 
 sys.path.append("..")
 sys.path.append("./")

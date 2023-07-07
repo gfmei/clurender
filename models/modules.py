@@ -138,8 +138,7 @@ class PointNetFeaturePropagation(nn.Module):
     def __init__(self, in_channel, out_channel, blocks=1, groups=1, res_expansion=1.0, bias=True):
         super(PointNetFeaturePropagation, self).__init__()
         self.fuse = ConvBNReLU1D(in_channel, out_channel, 1, bias=bias)
-        self.extraction = PosExtraction(out_channel, blocks, groups=groups,
-                                        res_expansion=res_expansion, bias=bias)
+        self.extraction = PosExtraction(out_channel, blocks, groups=groups, res_expansion=res_expansion, bias=bias)
 
     def forward(self, xyz1, xyz2, points1, points2):
         """

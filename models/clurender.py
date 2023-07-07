@@ -6,11 +6,148 @@
 # @File    : clurender.py
 # @Software: PyCharm
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
-from torch import nn
+from torch.nn import TransformerEncoderLayer
+from torch_geometric.nn import knn_interpolate
+
 from models.common import (square_distance, sinkhorn, get_module_device, feature_transform_regularizer,
-                           transform_points_tsfm, points_to_ndc)
+                           transform_points_tsfm, points_to_ndc, farthest_point_sample, index_points)
 from models.renderer import PointRenderer
+
+
+class TransformerLayer(nn.Module):
+    def __init__(self, dim_in, dim_out):
+        super(TransformerLayer, self).__init__()
+        self.dim_in = dim_in
+        self.dim_out = dim_out
+        self.query = nn.Conv1d(dim_in, dim_out, kernel_size=1)
+        self.key = nn.Conv1d(dim_in, dim_out, kernel_size=1)
+        self.value = nn.Conv1d(dim_in, dim_out, kernel_size=1)
+        self.fc = nn.Conv1d(dim_out, dim_out, kernel_size=1)
+
+    def forward(self, x):
+        q = self.query(x)
+        k = self.key(x)
+        v = self.value(x)
+
+        attn_weights = F.softmax(torch.bmm(q.permute(0, 2, 1), k), dim=-1)
+        attn_output = torch.bmm(v, attn_weights.permute(0, 2, 1))
+        attn_output = self.fc(attn_output)
+
+        return attn_output + x
+
+
+class FurthestDownSampling(nn.Module):
+    def __init__(self, num_points, is_center=True):
+        super(FurthestDownSampling, self).__init__()
+        self.num_points = num_points
+        self.is_center = is_center
+
+    def forward(self, points, features):
+        points = points.transpose(-1, -2)
+        features = features.transpose(-1, -2)
+        idx = farthest_point_sample(points, self.num_points, is_center=self.is_center)
+
+        sampled_points = index_points(points, idx)
+        sampled_features = index_points(features, idx)
+
+        return sampled_points, sampled_features
+
+
+class TransformerPropagation(nn.Module):
+    def __init__(self, dim_in, dim_out):
+        super(TransformerPropagation, self).__init__()
+        self.conv1 = nn.Conv1d(dim_in, dim_out, kernel_size=1)
+        self.transformer1 = TransformerLayer(dim_out, dim_out)
+        self.conv2 = nn.Conv1d(dim_out, dim_out, kernel_size=1)
+        self.transformer2 = TransformerLayer(dim_out, dim_out)
+
+    def forward(self, x, skip_connection):
+        x = self.conv1(x)
+        x = self.transformer1(x)
+        x = self.conv2(x)
+        x = self.transformer2(x)
+
+        # Upsample and concatenate skip connection
+        upsampled = F.interpolate(x, scale_factor=4, mode='linear', align_corners=False)
+        merged = torch.cat([upsampled, skip_connection], dim=1)
+
+        return merged
+
+
+class PointTransformer(nn.Module):
+    def __init__(self, dim_in, dim_out):
+        super(PointTransformer, self).__init__()
+        self.conv1 = nn.Conv1d(dim_in, dim_out, kernel_size=1)
+        self.transformer1 = TransformerLayer(dim_out, dim_out)
+        self.conv2 = nn.Conv1d(dim_out, dim_out, kernel_size=1)
+        self.transformer2 = TransformerLayer(dim_out, dim_out)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.transformer1(x)
+        x = self.conv2(x)
+        x = self.transformer2(x)
+        return x
+
+
+class UNetTransformer(nn.Module):
+    def __init__(self, in_channels, out_channels, num_samples_list, d_dims, u_dims, num_heads, is_center=True):
+        super(UNetTransformer, self).__init__()
+        self.downsampling = nn.ModuleList()
+        self.upsampling = nn.ModuleList()
+        self.encoder_layers = nn.ModuleList()
+        self.decoder_layers = nn.ModuleList()
+        self.is_center = is_center
+        self.num_stages = len(num_samples_list)  # Number of downsampling stages
+
+        # Downsampling layers
+        self.conv = nn.Conv1d(in_channels, d_dims[0], kernel_size=1)
+        for i in range(self.num_stages):
+            self.downsampling.append(FurthestDownSampling(num_samples_list[i], self.is_center))
+            self.encoder_layers.append(TransformerEncoderLayer(d_dims[i], num_heads))
+
+        # Upsampling layers
+        for i in range(self.num_stages):
+            self.upsampling.append(TransformerPropagation(self.is_center))
+            self.decoder_layers.append(TransformerEncoderLayer(d_dims[-1], 8))
+            in_channels *= 2
+
+        self.final_conv = nn.Conv1d(in_channels, out_channels, kernel_size=1)
+
+    def forward(self, points, features):
+        skip_connections = []
+
+        # Downsample
+        sampled_points = points
+        ds_features = self.conv(features)
+        for i in range(self.num_stages):
+            # sample points and features
+            sampled_points, sampled_points = self.downsampling[i](sampled_points, ds_features)
+            skip_connections.append((sampled_points, sampled_points))
+            ds_features = self.encoder_layers[i](ds_features)
+
+        # Upsample
+        for i in range(self.num_stages - 1, -1, -1):
+            features = self.upsampling[i](sampled_points, features)
+            features += skip_connections[i]
+            features = self.decoder_layers[i](features)
+
+        # Final convolution
+        output = self.final_conv(features)
+
+        return output
+
+
+class PointFeaturePropagation(nn.Module):
+    def __init__(self):
+        super(TransformerPropagation, self).__init__()
+
+    def forward(self, sampled_points, upsampled_points, features):
+        # Point Feature Propagation implementation
+        upsampled_features = knn_interpolate(features, sampled_points, upsampled_points)
+        return upsampled_features
 
 
 def ot_assign(x, y, epsilon=1e-3, thresh=1e-3, max_iter=30, dst='fe'):
@@ -256,4 +393,13 @@ class CluRender(nn.Module):
         return trans_loss
 
 
+if __name__ == '__main__':
+    # Example usage
+    in_channels = 3
+    out_channels = 1
+    N = 1024  # Number of input points
+    points = torch.randn(N, 3)  # Input point coordinates
+    features = torch.randn(N, in_channels)  # Input point features
 
+    model = UNetTransformer(in_channels, out_channels)
+    output = model(points, features)
