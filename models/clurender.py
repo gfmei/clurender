@@ -43,7 +43,11 @@ class TransformerDownSampling(nn.Module):
         super(TransformerDownSampling, self).__init__()
         self.num_points = num_points
         self.is_center = is_center
-        self.conv = nn.Conv1d(in_dim, out_dim, kernel_size=1)
+        self.conv = nn.Sequential(
+            nn.Conv1d(in_dim, out_dim, kernel_size=1),
+            nn.InstanceNorm1d(out_dim),
+            nn.ReLU()
+        )
 
     def forward(self, points, features):
         features = self.conv(features.transpose(-1, -2)).transpose(-1, -2)
@@ -56,15 +60,15 @@ class TransformerDownSampling(nn.Module):
 
 
 class TransformerUpSampling(nn.Module):
-    def __init__(self, dim_in, dim_out):
+    def __init__(self, in_dim, out_dim):
         super(TransformerUpSampling, self).__init__()
-        self.conv1 = nn.Conv1d(dim_in, dim_out, kernel_size=1)
-        self.transformer1 = TransformerLayer(dim_out, dim_out)
-        self.conv2 = nn.Conv1d(dim_out, dim_out, kernel_size=1)
-        self.transformer2 = TransformerLayer(dim_out, dim_out)
+        self.conv = nn.Sequential(
+            nn.Conv1d(in_dim, out_dim, kernel_size=1),
+            nn.InstanceNorm1d(out_dim),
+            nn.ReLU()
+        )
 
     def forward(self, xyz1, xyz2, features1, features2):
-        features2 = features2.permute(0, 2, 1)
         B, N, C = xyz1.shape
         _, S, _ = xyz2.shape
 
@@ -86,31 +90,9 @@ class TransformerUpSampling(nn.Module):
             new_featuress = interpolated_feastures
 
         new_featuress = new_featuress.permute(0, 2, 1)
-        for i, conv in enumerate(self.mlp_convs):
-            bn = self.mlp_bns[i]
-            new_featuress = F.relu(bn(conv(new_featuress)))
-        return new_featuress
-        # Upsample and concatenate skip connection
-        upsampled = F.interpolate(x, scale_factor=4, mode='linear', align_corners=False)
-        merged = torch.cat([upsampled, skip_connection], dim=1)
+        new_featuress = self.conv(new_featuress)
 
-        return merged
-
-
-class PointTransformer(nn.Module):
-    def __init__(self, dim_in, dim_out):
-        super(PointTransformer, self).__init__()
-        self.conv1 = nn.Conv1d(dim_in, dim_out, kernel_size=1)
-        self.transformer1 = TransformerLayer(dim_out, dim_out)
-        self.conv2 = nn.Conv1d(dim_out, dim_out, kernel_size=1)
-        self.transformer2 = TransformerLayer(dim_out, dim_out)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.transformer1(x)
-        x = self.conv2(x)
-        x = self.transformer2(x)
-        return x
+        return new_featuress.permute(0, 2, 1)
 
 
 class UNetTransformer(nn.Module):
@@ -133,15 +115,14 @@ class UNetTransformer(nn.Module):
 
         # Upsampling layers
         for i in range(self.num_stages):
-            self.upsampling.append(TransformerUpSampling(self.is_center))
-            self.decoder_layers.append(TransformerEncoderLayer(d_dims[-1], 8))
-            in_channels *= 2
+            in_channels = d_dims[-i-1] + u_dims[i]
+            self.upsampling.append(TransformerUpSampling(in_channels, u_dims[i]))
+            self.decoder_layers.append(TransformerEncoderLayer(u_dims[i], num_heads))
 
         self.final_conv = nn.Conv1d(in_channels, out_channels, kernel_size=1)
 
     def forward(self, points, features):
         skip_connections = []
-
         # Downsample
         sampled_points = points
         ds_features = self.conv(features)
@@ -153,24 +134,15 @@ class UNetTransformer(nn.Module):
 
         # Upsample
         for i in range(self.num_stages - 1, -1, -1):
-            features = self.upsampling[i](sampled_points, features)
-            features += skip_connections[i]
+            xyz1, features1 = skip_connections[i]
+            xyz2, features2 = skip_connections[i+1]
+            features = self.upsampling[i](xyz1, xyz2, features1, features1)
             features = self.decoder_layers[i](features)
 
         # Final convolution
         output = self.final_conv(features)
 
         return output
-
-
-class PointFeaturePropagation(nn.Module):
-    def __init__(self):
-        super(TransformerUpSampling, self).__init__()
-
-    def forward(self, sampled_points, upsampled_points, features):
-        # Point Feature Propagation implementation
-        upsampled_features = knn_interpolate(features, sampled_points, upsampled_points)
-        return upsampled_features
 
 
 def ot_assign(x, y, epsilon=1e-3, thresh=1e-3, max_iter=30, dst='fe'):
