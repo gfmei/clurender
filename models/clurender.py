@@ -117,7 +117,6 @@ class UNetTransformer(nn.Module):
             self.upsampling.append(TransformerUpSampling(in_channels, u_dims[i]))
             self.decoder_layers.append(TransformerEncoderLayer(u_dims[i], num_heads))
         self.final_conv = nn.Conv1d(u_dims[-1], out_channels, kernel_size=1)
-        print(u_dims[-1], u_dims[self.num_stages-1])
 
     def forward(self, points, features):
         skip_connections = []
@@ -389,7 +388,7 @@ class CluRender(nn.Module):
 if __name__ == '__main__':
     # Example usage
     in_channels = 32
-    out_channels = 1
+    out_channels = 32
     N = 1024  # Number of input points
     num_samples_list = [512, 256, 128]
     points = torch.randn(2, N, 3)  # Input point coordinates
