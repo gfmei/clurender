@@ -9,7 +9,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import TransformerEncoderLayer
-from torch_geometric.nn import knn_interpolate
 
 from models.common import (square_distance, sinkhorn, get_module_device, feature_transform_regularizer,
                            transform_points_tsfm, points_to_ndc, farthest_point_sample, index_points)
@@ -88,7 +87,6 @@ class TransformerUpSampling(nn.Module):
             new_featuress = torch.cat([features1, interpolated_feastures], dim=-1)
         else:
             new_featuress = interpolated_feastures
-
         new_featuress = new_featuress.permute(0, 2, 1)
         new_featuress = self.conv(new_featuress)
 
@@ -115,32 +113,31 @@ class UNetTransformer(nn.Module):
 
         # Upsampling layers
         for i in range(self.num_stages):
-            in_channels = d_dims[-i-1] + u_dims[i]
+            in_channels = d_dims[self.num_stages - i - 1] + d_dims[self.num_stages - i - 2]
             self.upsampling.append(TransformerUpSampling(in_channels, u_dims[i]))
             self.decoder_layers.append(TransformerEncoderLayer(u_dims[i], num_heads))
-
-        self.final_conv = nn.Conv1d(in_channels, out_channels, kernel_size=1)
+        self.final_conv = nn.Conv1d(u_dims[-1], out_channels, kernel_size=1)
 
     def forward(self, points, features):
         skip_connections = []
         # Downsample
         sampled_points = points
-        ds_features = self.conv(features)
+        ds_features = self.conv(features.transpose(-1, -2)).transpose(-1, -2)
         for i in range(self.num_stages):
             # sample points and features
-            sampled_points, sampled_points = self.downsampling[i](sampled_points, ds_features)
-            skip_connections.append((sampled_points, sampled_points))
+            sampled_points, ds_features = self.downsampling[i](sampled_points, ds_features)
+            skip_connections.append((sampled_points, ds_features))
             ds_features = self.encoder_layers[i](ds_features)
 
         # Upsample
-        for i in range(self.num_stages - 1, -1, -1):
-            xyz1, features1 = skip_connections[i]
-            xyz2, features2 = skip_connections[i+1]
-            features = self.upsampling[i](xyz1, xyz2, features1, features1)
+        for i in range(self.num_stages):
+            xyz1, features1 = skip_connections[self.num_stages - i - 1]
+            xyz2, features2 = skip_connections[self.num_stages - i - 2]
+            features = self.upsampling[i](xyz1, xyz2, features1, features2)
             features = self.decoder_layers[i](features)
 
         # Final convolution
-        output = self.final_conv(features)
+        output = self.final_conv(features.transpose(-1, -2))
 
         return output
 
@@ -390,11 +387,11 @@ class CluRender(nn.Module):
 
 if __name__ == '__main__':
     # Example usage
-    in_channels = 3
-    out_channels = 1
+    in_channels = 32
+    out_channels = 32
     N = 1024  # Number of input points
-    points = torch.randn(N, 3)  # Input point coordinates
-    features = torch.randn(N, in_channels)  # Input point features
-
-    model = UNetTransformer(in_channels, out_channels)
+    num_samples_list = [512, 256, 128]
+    points = torch.randn(2, N, 3)  # Input point coordinates
+    features = torch.randn(2, N, in_channels)  # Input point features
+    model = UNetTransformer(in_channels, out_channels, num_samples_list, [32, 64, 128], [128, 64, 32], 2)
     output = model(points, features)
