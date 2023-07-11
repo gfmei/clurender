@@ -177,6 +177,40 @@ def dis_assign(x, y, tau=0.01, dst='eu'):
     return gamma.transpose(-1, -2), cost
 
 
+class SlicedWassersteinDistance(nn.Module):
+    def __init__(self, num_projections=1000):
+        super(SlicedWassersteinDistance, self).__init__()
+        self.num_projections = num_projections
+
+    def forward(self, x, y):
+        assert x.shape == y.shape
+        b, w, h, c = x.shape
+        x = x.permute(0, 3, 1, 2).reshape(b, c, -1)  # Flatten spatial dimensions
+        y = y.permute(0, 3, 1, 2).reshape(b, c, -1)
+
+        # Create coordinate grid
+        grid_y, grid_x = torch.meshgrid(torch.linspace(-1, 1, h), torch.linspace(-1, 1, w))
+        grid = torch.stack((grid_x, grid_y), 0).to(x.device)  # 2, W, H
+        grid = grid.unsqueeze(0).repeat(b, 1, 1, 1).reshape(b, 2, -1)  # Add coordinates as channels
+
+        x = torch.cat((x, grid), 1)  # Add the coordinates to the feature dimension
+        y = torch.cat((y, grid), 1)
+
+        projections = torch.randn((self.num_projections, 5)).to(x.device)
+
+        x_projections = (x.unsqueeze(1) * projections.view(1, self.num_projections, 5, 1)).sum(dim=-2)
+        y_projections = (y.unsqueeze(1) * projections.view(1, self.num_projections, 5, 1)).sum(dim=-2)
+
+        swd = (x_projections.sort(dim=-1)[0] - y_projections.sort(dim=-1)[0]).pow(2).mean().sqrt()
+        return swd
+
+
+def renderer_loss(rendered_imgs, gt_imgs, num_projections=1000):
+    swd = SlicedWassersteinDistance(num_projections)
+    loss = swd(rendered_imgs, gt_imgs)
+    return loss
+
+
 class CONV(nn.Module):
     def __init__(self, in_size=512, out_size=256, hidden_size=1024, used='proj'):
         super().__init__()
@@ -387,11 +421,25 @@ class CluRender(nn.Module):
 
 if __name__ == '__main__':
     # Example usage
-    in_channels = 32
-    out_channels = 32
-    N = 1024  # Number of input points
-    num_samples_list = [512, 256, 128]
-    points = torch.randn(2, N, 3)  # Input point coordinates
-    features = torch.randn(2, N, in_channels)  # Input point features
-    model = UNetTransformer(in_channels, out_channels, num_samples_list, [32, 64, 128], [128, 64, 32], 2)
-    output = model(points, features)
+    # in_channels = 32
+    # out_channels = 32
+    # N = 1024  # Number of input points
+    # num_samples_list = [512, 256, 128]
+    # points = torch.randn(2, N, 3)  # Input point coordinates
+    # features = torch.randn(2, N, in_channels)  # Input point features
+    # model = UNetTransformer(in_channels, out_channels, num_samples_list, [32, 64, 128], [128, 64, 32], 2)
+    # output = model(points, features)
+    # Example usage
+    batch_size = 4
+    width = 128
+    height = 128
+
+    # Generate random rendered and ground truth images
+    rendered_images = torch.randn(batch_size, width, height, 3)
+    ground_truth_images = torch.randn(batch_size, width, height, 3)
+
+    # Calculate image loss
+    loss = renderer_loss(rendered_images, ground_truth_images)
+
+    print(loss)
+
