@@ -388,7 +388,7 @@ class CluRender(nn.Module):
         device = get_module_device(backbone)
         self.to(device)
 
-    def forward(self, points, images, tsfms, K, return_embedding=False):
+    def forward(self, points, images=None, tsfms=None, K=None, return_embedding=False):
         """
         :param images:
         :param tsfms:
@@ -406,15 +406,16 @@ class CluRender(nn.Module):
             feature, wise, trans = out
             if trans is not None:
                 trans_loss = 0.001 * feature_transform_regularizer(trans)
-        render_imgs = []
+        render_loss = []
         pcd_lists = [transform_points_tsfm(points.transpose(1, 2), tsfm) for tsfm in tsfms]
         colors = self.color(wise)
         B, _, H, W = images[0].shape
         for i in range(len(tsfms)):
             pcd_i = points_to_ndc(pcd_lists[i], K, [H, W])
-            render_imgs.append(self.render(pcd_i, colors))
-        loss_rq = self.cluster(wise, points)
-        trans_loss += loss_rq
+            render_loss_i = render_loss(self.render(pcd_i, colors), images[i])
+            render_loss.append(render_loss_i)
+        loss_clu = self.cluster(wise, points)
+        trans_loss += loss_clu + torch.tensor(render_loss).sum()
 
         return trans_loss
 
