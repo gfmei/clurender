@@ -254,7 +254,7 @@ class Group(nn.Module):  # FPS + KNN
         center_idx = farthest_point_sample(xyz, self.num_group)  # B G 3
         center = index_points(xyz, center_idx)
         # knn to get the neighborhood
-        _, idx = self.knn(center, xyz)  # B G M
+        idx = self.knn(center, xyz)  # B G M
         assert idx.size(1) == self.num_group
         assert idx.size(2) == self.group_size
         idx_base = torch.arange(0, batch_size, device=xyz.device).view(-1, 1, 1) * num_points

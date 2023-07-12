@@ -1,5 +1,6 @@
 import sys
 
+import torch
 from timm.models.layers import trunc_normal_
 
 sys.path.append("..")
@@ -137,17 +138,23 @@ class PointSEG(nn.Module):
         self.propagations = nn.ModuleList()
         for i in range(3):
             self.propagations.append(
-                PointNetFeaturePropagation_(in_channel=self.encoder_dims[i] + 3, mlp=[self.trans_dim * 4, 1024]))
-
-        self.convs1 = nn.Conv1d(6208, 1024, 1)
-        self.dp1 = nn.Dropout(0.5)
-        self.convs2 = nn.Conv1d(1024, 512, 1)
-        self.convs3 = nn.Conv1d(512, 256, 1)
-        self.convs4 = nn.Conv1d(256, self.cls_dim, 1)
-        self.bns1 = nn.BatchNorm1d(1024)
-        self.bns2 = nn.BatchNorm1d(512)
-        self.bns3 = nn.BatchNorm1d(256)
-        self.relu = nn.ReLU()
+                PointNetFeaturePropagation_(in_channel=self.encoder_dims[i] + 3, mlp=[self.trans_dim * 4,
+                                                                                      self.encoder_dims[i]]))
+        out_dim = 0
+        for x in self.encoder_dims:
+            out_dim += x
+        out_dim = 2 * out_dim
+        self.conv = nn.Sequential(
+            nn.Linear(out_dim, 256),
+            nn.BatchNorm1d(256),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.5),
+            nn.Linear(256, 256),
+            nn.BatchNorm1d(256),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.5),
+            nn.Linear(256, cls_dim)
+        )
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -180,7 +187,6 @@ class PointSEG(nn.Module):
 
         # hierarchical encoder
         x_vis_list = self.h_encoder(neighborhoods, centers, idxs)
-
         for i in range(len(x_vis_list)):
             x_vis_list[i] = self.propagations[i](pts.transpose(-1, -2), centers[i].transpose(-1, -2),
                                                  pts.transpose(-1, -2), x_vis_list[i])
@@ -188,18 +194,10 @@ class PointSEG(nn.Module):
         x_max = torch.max(x, 2)[0]
         if is_eval:
             x_avg = torch.mean(x, 2)
-            x_max_feature = x_max.view(B, -1).unsqueeze(-1).repeat(1, 1, N)
-            x_avg_feature = x_avg.view(B, -1).unsqueeze(-1).repeat(1, 1, N)
-            x_global_feature = torch.cat((x_max_feature + x_avg_feature), 1)  # 672 * 2
 
-            x = torch.cat((x_global_feature, x), 1)
-            x = self.relu(self.bns1(self.convs1(x)))
-            x = self.dp1(x)
-            x = self.relu(self.bns2(self.convs2(x)))
-            x = self.relu(self.bns3(self.convs3(x)))
-            x = self.convs4(x)
+            x = torch.cat((x_max, x_avg), 1)
+            x = self.conv(x)
             x = F.log_softmax(x, dim=1)
-            x = x.permute(0, 2, 1)
             return x
         else:
             return x_max, x
@@ -212,3 +210,10 @@ class get_loss(nn.Module):
     def forward(self, pred, target):
         total_loss = F.nll_loss(pred, target)
         return total_loss
+
+
+if __name__ == '__main__':
+    net = PointSEG()
+    points = torch.rand(4, 3, 1024)
+    x = net(points, True)
+    print(x.shape)
