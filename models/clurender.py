@@ -412,7 +412,7 @@ class CluRender(nn.Module):
         B, _, H, W = images[0].shape
         for i in range(len(tsfms)):
             pcd_i = points_to_ndc(pcd_lists[i], K, [H, W])
-            render_loss_i = render_loss(self.render(pcd_i, colors), images[i])
+            render_loss_i = renderer_loss(self.render(pcd_i, colors), images[i])
             render_loss.append(render_loss_i)
         loss_clu = self.cluster(wise, points)
         trans_loss += loss_clu + torch.tensor(render_loss).sum()

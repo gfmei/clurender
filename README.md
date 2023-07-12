@@ -1,5 +1,5 @@
 # Unsupervised Point Cloud Representation Learning by Clustering and Neural Rendering
-This is the officail code for  review of CluRender
+This is the part of official code for IJCV review
 # clurender
 =======
 # 
