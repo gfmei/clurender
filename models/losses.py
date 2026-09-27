@@ -66,7 +66,8 @@ class BalancedClustering(nn.Module):
             cost = square_distance(xyz, prototypes.detach()).clamp_min(0)
             p = cost.new_full((batch, count), 1.0 / count)
             q = cost.new_full((batch, clusters), 1.0 / clusters)
-            plan, _ = sinkhorn(cost, p, q, self.epsilon, self.tolerance, self.iterations)
+            plan, _ = sinkhorn(cost, p, q, self.epsilon, self.tolerance, self.iterations, check_every=10,
+                               anneal=True)
             marginal_error = (count * plan.sum(-1) - 1).abs().amax()
             if self.round_assignments:
                 plan = round_transport_plan(plan, p, q)
@@ -157,21 +158,28 @@ class _SlicedSquaredW2(torch.autograd.Function):
     Each projection sorts N scalars, so no N x N cost matrix is ever formed.
     The gradient with respect to ``x`` is accumulated during the forward pass;
     only that (B, N, D) buffer is kept, not the per-projection sort indices.
-    ``y`` is a target and receives no gradient.
+    ``y`` is a target and receives no gradient. With ``key_dtype`` (e.g.
+    float16), the order comes from lower-precision keys, which halves the
+    radix-sort passes; values and gradients stay in full precision, and only
+    nearly equal values may swap places.
     """
 
     @staticmethod
-    def forward(ctx, x, y, directions, chunk_size):
+    def forward(ctx, x, y, directions, chunk_size, key_dtype=None):
         batch, count, _ = x.shape
         total = x.new_zeros(())
         grad = torch.zeros_like(x) if ctx.needs_input_grad[0] else None
+        x_t, y_t = x.transpose(1, 2), y.transpose(1, 2)
         for projection in directions.split(chunk_size):
-            projected, order = (x @ projection.T).sort(dim=1)
-            difference = projected - (y @ projection.T).sort(dim=1).values
-            total += difference.square().mean(dim=(0, 1)).sum()
+            # (B, projections, N): sorting along the last, contiguous dimension is fastest.
+            projected, target = projection @ x_t, projection @ y_t
+            order = (projected if key_dtype is None else projected.to(key_dtype)).argsort(dim=-1)
+            target_order = (target if key_dtype is None else target.to(key_dtype)).argsort(dim=-1)
+            difference = projected.gather(-1, order) - target.gather(-1, target_order)
+            total += difference.square().mean(dim=(0, 2)).sum()
             if grad is not None:
                 # Return each sorted difference to its sample, then back to sample space.
-                grad += torch.empty_like(difference).scatter_(1, order, difference) @ projection
+                grad += torch.empty_like(difference).scatter_(-1, order, difference).transpose(1, 2) @ projection
         scale = 1 / len(directions)
         if grad is not None:
             grad *= 2 * scale / (batch * count)
@@ -181,7 +189,7 @@ class _SlicedSquaredW2(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output):
         grad, = ctx.saved_tensors
-        return grad_output * grad, None, None, None
+        return grad_output * grad, None, None, None, None
 
 
 class SlicedWassersteinDistance(nn.Module):
@@ -191,13 +199,14 @@ class SlicedWassersteinDistance(nn.Module):
     number of pixels. Kept channels-last for the original public helper.
     """
 
-    def __init__(self, num_projections=128, position_weight=0.5, chunk_size=32):
+    def __init__(self, num_projections=128, position_weight=0.5, chunk_size=128, key_dtype=torch.float16):
         super().__init__()
         if num_projections < 1 or chunk_size < 1:
             raise ValueError("Projection counts must be positive")
         self.num_projections = num_projections
         self.position_weight = position_weight
         self.chunk_size = chunk_size
+        self.key_dtype = key_dtype
 
     def forward(self, x, y):
         if x.shape != y.shape or x.ndim != 4 or x.shape[-1] != 3:
@@ -206,7 +215,7 @@ class SlicedWassersteinDistance(nn.Module):
         y = image_samples(y.permute(0, 3, 1, 2), self.position_weight)
         directions = F.normalize(torch.randn(self.num_projections, 5, device=x.device, dtype=x.dtype), dim=-1)
         # Squared W2 has a finite zero gradient for identical images.
-        return _SlicedSquaredW2.apply(x, y.detach(), directions, self.chunk_size)
+        return _SlicedSquaredW2.apply(x, y.detach(), directions, self.chunk_size, self.key_dtype)
 
 
 class SlicedImageLoss(SlicedWassersteinDistance):

@@ -19,6 +19,13 @@ Two self-supervised objectives train the same encoder:
   The colored points are splatted into calibrated views, and an optimal
   transport loss measures the consistency between rendered and real images.
 
+![CluRender framework](docs/framework.png)
+
+*Architecture overview (Fig. 1 of the paper). The 3D branch clusters the
+point cloud with balanced Sinkhorn pseudo-labels; the 2D branch colors the
+points, renders them into a camera view and compares the result with the
+real image.*
+
 The pretrained encoder transfers to classification, part segmentation, semantic
 segmentation, object detection and few-shot learning.
 
@@ -114,6 +121,8 @@ from cameras on an orbit around the object (distance 2.7, elevation 15°,
 python prepare_shapenet.py --root data/ShapeNetCore --output data/shapenet_paired --views 8
 ```
 
+![One rendered view of an object from each of the 55 ShapeNetCore categories](docs/shapenet55_renders.png)
+
 Each object is stored as `data/shapenet_paired/<category>/<model>.npz`:
 
 | Array | Shape | Content |
@@ -168,6 +177,13 @@ of epochs. The main settings are:
 `python main_pretrain.py --help` lists all options. The output directory
 contains full checkpoints (`last.pth`, `best.pth`, `epoch_NNNN.pth`), the
 encoder weights `backbone.pth`, the settings and per-epoch metrics.
+
+**Early stopping.** With `--monitor-svm data/modelnet40_ply_hdf5_2048`, a
+linear SVM on frozen encoder features is fitted every `--monitor-every` epochs
+(default 5) on a fixed 80% of the ModelNet40 training split and scored on the
+remaining 20%; the ModelNet40 test split is not used. The best encoder is kept
+as `backbone_best_svm.pth`, and `--patience N` stops training after N checks
+without improvement.
 
 ## Downstream Tasks
 
@@ -240,8 +256,9 @@ global_features, point_features = encoder(points)  # points: B x 3 x N
 
 ## Implementation Details
 
-- **Clustering.** Pseudo-labels come from log-domain Sinkhorn iterations
-  (entropy 0.001), which run until the point marginals are within 1% of balance,
+- **Clustering.** Pseudo-labels come from log-domain Sinkhorn iterations with
+  epsilon scaling (target entropy 0.001), which run until the point marginals
+  are within 1% of balance,
   followed by a projection onto the exact marginals
   ([Altschuler et al., 2017](https://arxiv.org/abs/1705.09634)).
   `--sinkhorn-iterations 20 --sinkhorn-tolerance 0` instead runs a fixed budget

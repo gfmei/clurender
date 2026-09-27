@@ -1,6 +1,7 @@
 """CluRender joint pretraining. Run --help or --smoke for a complete example."""
 
 import argparse
+import datetime
 import json
 import math
 import os
@@ -64,7 +65,7 @@ def parser():
     p.add_argument("--data-parallel", action=argparse.BooleanOptionalAction, default=None,
                    help="Single-process DataParallel over visible GPUs; torchrun (one process per GPU) scales better")
     p.add_argument("--checkpoint-rendering", action=argparse.BooleanOptionalAction, default=None,
-                   help="Recompute rasterization in backward to reduce view memory (default enabled)")
+                   help="Recompute rasterization in backward: less memory, slower (default disabled)")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--threads", type=int, default=None, help="CPU Torch threads (default 4)")
     p.add_argument("--resume", help="Resume a full training checkpoint, including saved model settings")
@@ -72,6 +73,12 @@ def parser():
     p.add_argument("--log-every", type=int, default=None, help="Logging interval (default 10)")
     p.add_argument("--steps-per-epoch", type=int, help="Optional cap for short debugging runs")
     p.add_argument("--smoke", action="store_true", help="Tiny synthetic CPU run; no external data or PyTorch3D needed")
+    p.add_argument("--monitor-svm", help="ModelNet40 h5 folder: score a linear SVM on frozen features every "
+                   "--monitor-every epochs, fit and validated on a fixed 80/20 split of its train set")
+    p.add_argument("--monitor-every", type=int, default=None, help="Epochs between SVM checks (default 5)")
+    p.add_argument("--patience", type=int, help="Stop after this many SVM checks without improvement")
+    p.add_argument("--min-delta", type=float, default=None,
+                   help="Validation accuracy gain that counts as improvement (default 0.002)")
     return p
 
 
@@ -112,7 +119,8 @@ def resolve_args(args, checkpoint=None):
         # Likewise, older runs used a fixed Sinkhorn budget without early stopping.
         saved["sinkhorn_tolerance"] = checkpoint["args"].get("sinkhorn_tolerance", 0.0)
         for name in ("device", "workers", "threads", "data_parallel", "save_every", "log_every",
-                     "checkpoint_rendering", "steps_per_epoch", "epochs", "output", "root", "split"):
+                     "checkpoint_rendering", "steps_per_epoch", "epochs", "output", "root", "split",
+                     "monitor_svm", "monitor_every", "patience", "min_delta"):
             if getattr(args, name) is not None:
                 saved[name] = getattr(args, name)
         saved["resume"] = args.resume
@@ -126,7 +134,8 @@ def resolve_args(args, checkpoint=None):
         args.radius, args.sigma = 2.0, 1.0
         args.epochs = args.epochs if args.epochs is not None else 2
     for name, default in {"device": "auto", "workers": 4, "threads": 4, "data_parallel": False,
-                          "save_every": 10, "log_every": 10, "checkpoint_rendering": True}.items():
+                          "save_every": 10, "log_every": 10, "checkpoint_rendering": False,
+                          "monitor_every": 5, "min_delta": 0.002}.items():
         if getattr(args, name) is None:
             setattr(args, name, default)
     args.epochs = args.epochs if args.epochs is not None else 250
@@ -152,6 +161,10 @@ def resolve_args(args, checkpoint=None):
         raise ValueError("Invalid optimizer or scheduler settings")
     if args.steps_per_epoch is not None and args.steps_per_epoch < 1:
         raise ValueError("steps-per-epoch must be positive")
+    if args.monitor_every < 1 or not 0 <= args.min_delta < 1 or (args.patience is not None and args.patience < 1):
+        raise ValueError("monitor-every and patience must be positive and min-delta in [0, 1)")
+    if args.patience is not None and not args.monitor_svm:
+        raise ValueError("--patience needs --monitor-svm")
     if min(args.num_points, args.num_views, args.num_clusters, args.image_size,
            args.sinkhorn_iterations, args.points_per_pixel, args.num_projections, *args.color_dims) < 1:
         raise ValueError("Model, sampling and rendering dimensions must be positive")
@@ -176,6 +189,52 @@ def reduce_parallel_losses(losses):
     weights = counts / counts.sum()
     return {name: value.max() if name == "assignment_error" else (value * weights).sum()
             for name, value in losses.items() if name != "batch_size"}
+
+
+class SvmMonitor:
+    """Linear SVM accuracy of frozen encoder features on held-out ModelNet40 training objects.
+
+    A fixed, class-stratified 20% of the ModelNet40 train split is held out for
+    validation; the ModelNet40 test split is never used.
+    """
+
+    def __init__(self, root, seed, device, num_points=1024):
+        from datasets.downstream import load_classification
+        from models.finetune import subsample
+
+        points, labels, _ = load_classification("modelnet40", root, "train")
+        generator = torch.Generator().manual_seed(seed)
+        held_out = torch.zeros(len(labels), dtype=torch.bool)
+        for label in labels.unique():
+            members = (labels == label).nonzero().flatten()
+            held_out[members[torch.randperm(len(members), generator=generator)][:max(1, len(members) // 5)]] = True
+        self.points = torch.cat([subsample(batch.to(device), num_points).cpu() for batch in points.split(64)])
+        self.labels, self.held_out = labels.numpy(), held_out.numpy()
+
+    @torch.no_grad()
+    def score(self, encoder, device):
+        from sklearn.svm import SVC
+
+        training = encoder.training
+        encoder.eval()
+        features = []
+        for batch in self.points.split(64):
+            per_point = encoder(batch.to(device))[1]
+            features.append(torch.cat((per_point.amax(-1), per_point.mean(-1)), 1).cpu())
+        encoder.train(training)
+        features = torch.cat(features).numpy()
+        svm = SVC(C=0.1, kernel="linear").fit(features[~self.held_out], self.labels[~self.held_out])
+        return float(svm.score(features[self.held_out], self.labels[self.held_out]))
+
+
+def early_stopping(state, accuracy, min_delta, patience):
+    """Record a validation accuracy in {"best", "stale"}; return (improved, stop)."""
+    improved = accuracy > state["best"] + min_delta
+    if improved:
+        state.update(best=accuracy, stale=0)
+    else:
+        state["stale"] += 1
+    return improved, patience is not None and state["stale"] >= patience
 
 
 def distributed_context():
@@ -215,6 +274,10 @@ def train(args):
         # when the requested training is already complete.
         print(f"Checkpoint already completed {checkpoint['epoch']} epochs; increase --epochs to continue.", flush=True)
         return Path(args.resume).resolve()
+    if (checkpoint is not None and args.patience is not None
+            and checkpoint.get("monitor", {}).get("stale", 0) >= args.patience):
+        print(f"Training stopped early at epoch {checkpoint['epoch']}; increase --patience to continue.", flush=True)
+        return Path(args.resume).resolve()
     torch.set_num_threads(args.threads)
     random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -236,7 +299,8 @@ def train(args):
         if device.type == "cuda":
             device = torch.device("cuda", local_rank)
             torch.cuda.set_device(device)
-        dist.init_process_group("nccl" if device.type == "cuda" else "gloo")
+        # Long enough for the other processes to wait while the first scores the SVM monitor.
+        dist.init_process_group("nccl" if device.type == "cuda" else "gloo", timeout=datetime.timedelta(minutes=60))
     if args.data_parallel and (device.type != "cuda" or device.index not in (None, 0)):
         raise ValueError("--data-parallel requires --device cuda or cuda:0")
     if args.data_parallel:
@@ -262,11 +326,13 @@ def train(args):
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_step, args.lr_gamma)
     start_epoch, global_step, best_loss = 0, 0, float("inf")
+    monitor_state = {"best": float("-inf"), "stale": 0}
     if checkpoint is not None:
         model.load_state_dict(checkpoint["model"])
         optimizer.load_state_dict(checkpoint["optimizer"])
         scheduler.load_state_dict(checkpoint["scheduler"])
         start_epoch, global_step, best_loss = checkpoint["epoch"], checkpoint["global_step"], checkpoint["best_loss"]
+        monitor_state = checkpoint.get("monitor", monitor_state)
         torch.set_rng_state(checkpoint["torch_rng"])
         random.setstate(checkpoint["python_rng"])
         generator.set_state(checkpoint["loader_rng"])
@@ -277,6 +343,8 @@ def train(args):
         training_model = DistributedDataParallel(model, device_ids=[local_rank] if device.type == "cuda" else None)
     else:
         training_model = torch.nn.DataParallel(model) if args.data_parallel else model
+    monitor = (SvmMonitor(args.monitor_svm, args.seed, device, args.num_points)
+               if args.monitor_svm and rank == 0 else None)
     if rank == 0:
         (output / "config.json").write_text(json.dumps(vars(args), indent=2) + "\n")
         print(f"CluRender: {len(dataset)} samples, {world} x {device.type}, {args.image_loss} fitting, "
@@ -315,10 +383,24 @@ def train(args):
         scheduler.step()
         improved = metrics["loss"] < best_loss
         best_loss = min(best_loss, metrics["loss"])
+        monitor_improved = stop = False
+        if args.monitor_svm and (epoch + 1) % args.monitor_every == 0:
+            if rank == 0:
+                began = time.perf_counter()
+                metrics["svm_val_accuracy"] = monitor.score(model.backbone, device)
+                metrics["svm_seconds"] = time.perf_counter() - began
+                monitor_improved, stop = early_stopping(monitor_state, metrics["svm_val_accuracy"],
+                                                        args.min_delta, args.patience)
+            if world > 1:
+                flag = torch.tensor([int(stop)], device=device)
+                dist.broadcast(flag, 0)
+                stop = bool(flag.item())
         if rank != 0:
+            if stop:
+                break
             continue  # Only the first process writes checkpoints and logs.
         state = {"format_version": 2, "epoch": epoch + 1, "global_step": global_step,
-                 "best_loss": best_loss, "args": vars(args), "model": model.state_dict(),
+                 "best_loss": best_loss, "monitor": monitor_state, "args": vars(args), "model": model.state_dict(),
                  "optimizer": optimizer.state_dict(), "scheduler": scheduler.state_dict(),
                  "torch_rng": torch.get_rng_state(), "python_rng": random.getstate(),
                  "loader_rng": generator.get_state(),
@@ -327,11 +409,18 @@ def train(args):
         atomic_save(model.backbone.state_dict(), output / "backbone.pth")
         if improved:
             atomic_save(state, output / "best.pth")
+        if monitor_improved:
+            atomic_save(state, output / "best_svm.pth")
+            atomic_save(model.backbone.state_dict(), output / "backbone_best_svm.pth")
         if (epoch + 1) % args.save_every == 0:
             atomic_save(state, output / f"epoch_{epoch + 1:04d}.pth")
         with (output / "metrics.jsonl").open("a") as stream:
             stream.write(json.dumps(metrics) + "\n")
         print(json.dumps(metrics), flush=True)
+        if stop:
+            print(f"Early stop: SVM validation accuracy did not improve for {args.patience} checks "
+                  f"(best {monitor_state['best']:.4f}).", flush=True)
+            break
     if world > 1:
         dist.barrier()  # Every process returns after the final checkpoint exists.
         dist.destroy_process_group()

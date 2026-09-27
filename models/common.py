@@ -7,6 +7,7 @@
 # @Software: PyCharm
 import os
 import random
+import threading
 from typing import List
 
 import numpy as np
@@ -88,28 +89,106 @@ def get_module_device(module):
     return next(module.parameters()).device
 
 
-def sinkhorn(cost, p, q, epsilon=1e-2, thresh=1e-2, max_iter=100):
+def _sinkhorn_iteration(cost, log_p, log_q, f, g, eps):
+    f = eps * (log_p - torch.logsumexp((g.unsqueeze(-2) - cost) / eps, dim=-1))
+    g = eps * (log_q - torch.logsumexp((f.unsqueeze(-1) - cost) / eps, dim=-2))
+    return f, g
+
+
+class _SinkhornGraph:
+    """``count`` Sinkhorn iterations captured as one CUDA graph.
+
+    On problems of the clustering's size, launching the dozen small kernels of
+    an iteration takes far longer than running them; replaying a captured
+    graph issues all of them at once.
+    """
+
+    def __init__(self, cost, log_p, log_q, epsilon, count):
+        self.cost, self.log_p, self.log_q = cost.clone(), log_p.clone(), log_q.clone()
+        self.f, self.g = torch.zeros_like(log_p), torch.zeros_like(log_q)
+
+        def iterations():
+            f, g = self.f, self.g
+            for _ in range(count):
+                f, g = _sinkhorn_iteration(self.cost, self.log_p, self.log_q, f, g, epsilon)
+            self.f.copy_(f)
+            self.g.copy_(g)
+
+        with torch.cuda.device(cost.device):
+            stream = torch.cuda.Stream()
+            stream.wait_stream(torch.cuda.current_stream())
+            with torch.cuda.stream(stream):
+                iterations()  # Warm-up allocations outside the capture.
+            torch.cuda.current_stream().wait_stream(stream)
+            self.graph = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(self.graph, capture_error_mode="thread_local"):
+                iterations()
+
+    def __call__(self, cost, log_p, log_q, f, g):
+        for static, value in ((self.cost, cost), (self.log_p, log_p), (self.log_q, log_q), (self.f, f), (self.g, g)):
+            static.copy_(value)
+        self.graph.replay()
+        return self.f.clone(), self.g.clone()
+
+
+_SINKHORN_GRAPHS = {}
+_SINKHORN_GRAPHS_LOCK = threading.Lock()
+
+
+def _sinkhorn_graph(cost, log_p, log_q, epsilon, count):
+    key = (tuple(cost.shape), cost.dtype, cost.device, float(epsilon), count)
+    with _SINKHORN_GRAPHS_LOCK:
+        if key not in _SINKHORN_GRAPHS:
+            _SINKHORN_GRAPHS[key] = _SinkhornGraph(cost, log_p, log_q, epsilon, count)
+        return _SINKHORN_GRAPHS[key]
+
+
+def sinkhorn(cost, p, q, epsilon=1e-2, thresh=1e-2, max_iter=100, check_every=1, anneal=False, use_graph=True):
     """Log-domain transport with arbitrary leading batch dimensions.
 
     ``thresh`` measures relative marginal error; zero runs a fixed iteration
-    budget. Neither singleton batches nor singleton support axes are squeezed.
+    budget. The error is checked every ``check_every`` iterations, since each
+    check synchronizes with the GPU. With ``anneal`` (epsilon scaling), the
+    first iterations use an entropy that starts at the largest cost and halves
+    each iteration down to ``epsilon``; the dual potentials carry over.
+    ``max_iter`` counts all iterations. On CUDA without autograd, each block
+    of ``check_every`` iterations at the target entropy replays a cached CUDA
+    graph (``use_graph``). Neither singleton batches nor singleton support
+    axes are squeezed.
     """
-    if epsilon <= 0 or max_iter < 1 or thresh < 0:
-        raise ValueError("epsilon/max_iter must be positive and thresh nonnegative")
+    if epsilon <= 0 or max_iter < 1 or thresh < 0 or check_every < 1:
+        raise ValueError("epsilon/max_iter/check_every must be positive and thresh nonnegative")
     if cost.shape[-2:] != (p.shape[-1], q.shape[-1]):
         raise ValueError("Transport cost and marginal shapes disagree")
-    log_kernel = -cost / epsilon
+    schedule = []
+    if anneal:
+        scale = cost.detach().amax().item()
+        while scale > epsilon:
+            schedule.append(scale)
+            scale /= 2
     log_p, log_q = p.log(), q.log()
-    u, v = torch.zeros_like(p), torch.zeros_like(q)
-    for _ in range(max_iter):
-        u = log_p - torch.logsumexp(log_kernel + v.unsqueeze(-2), dim=-1)
-        v = log_q - torch.logsumexp(log_kernel + u.unsqueeze(-1), dim=-2)
-        if thresh > 0:
-            log_plan = log_kernel + u.unsqueeze(-1) + v.unsqueeze(-2)
+    # Dual potentials in cost units, so they carry over when epsilon changes.
+    f, g = torch.zeros_like(p), torch.zeros_like(q)
+    done = min(len(schedule), max_iter)
+    for eps in schedule[:done]:
+        f, g = _sinkhorn_iteration(cost, log_p, log_q, f, g, eps)
+    graph = None
+    if use_graph and cost.is_cuda and not (torch.is_grad_enabled() and cost.requires_grad):
+        graph = _sinkhorn_graph(cost, log_p, log_q, epsilon, check_every)
+    while done < max_iter:
+        block = min(check_every, max_iter - done)
+        if graph is not None and block == check_every:
+            f, g = graph(cost, log_p, log_q, f, g)
+        else:
+            for _ in range(block):
+                f, g = _sinkhorn_iteration(cost, log_p, log_q, f, g, epsilon)
+        done += block
+        if thresh > 0 and block == check_every:
+            log_plan = (f.unsqueeze(-1) + g.unsqueeze(-2) - cost) / epsilon
             row_error = (torch.exp(torch.logsumexp(log_plan, -1) - log_p) - 1).abs().amax()
             if row_error.item() < thresh:
                 break
-    gamma = (log_kernel + u.unsqueeze(-1) + v.unsqueeze(-2)).exp()
+    gamma = ((f.unsqueeze(-1) + g.unsqueeze(-2) - cost) / epsilon).exp()
     return gamma, (gamma * cost).sum(dim=(-2, -1))
 
 

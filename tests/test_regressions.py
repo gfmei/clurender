@@ -1,6 +1,9 @@
 """Regression cases found while reviewing the pretraining implementation."""
 
 import copy
+import json
+
+import numpy as np
 import pytest
 import torch
 from torch.nn import functional as F
@@ -343,6 +346,11 @@ def test_sliced_loss_keeps_only_a_sample_sized_buffer_and_matches_autograd():
     actual, = torch.autograd.grad(loss, x)
     torch.testing.assert_close(loss, reference)
     torch.testing.assert_close(actual, expected)
+    # Half-precision sort keys: the same loss and nearly the same gradient.
+    approximate = _SlicedSquaredW2.apply(x, y, directions, 16, torch.float16)
+    gradient, = torch.autograd.grad(approximate, x)
+    torch.testing.assert_close(approximate, reference, rtol=1e-3, atol=0)
+    assert torch.nn.functional.cosine_similarity(gradient.flatten(), expected.flatten(), 0) > .99
 
     saved = []
     rendered, target = torch.rand(2, 3, 32, 32, requires_grad=True), torch.rand(2, 3, 32, 32)
@@ -378,3 +386,50 @@ def _distributed_worker(rank, world, port, args):
                       MASTER_ADDR="127.0.0.1", MASTER_PORT=str(port))
     torch.set_num_threads(1)
     train(args)
+
+
+def test_early_stopping_counts_checks_without_sufficient_improvement():
+    from main_pretrain import early_stopping
+
+    state = {"best": float("-inf"), "stale": 0}
+    assert early_stopping(state, .50, .01, 2) == (True, False)
+    assert early_stopping(state, .505, .01, 2) == (False, False)  # Below min-delta.
+    assert early_stopping(state, .52, .01, 2) == (True, False) and state == {"best": .52, "stale": 0}
+    assert early_stopping(state, .40, .01, 2) == (False, False)
+    assert early_stopping(state, .41, .01, 2) == (False, True)
+    assert early_stopping({"best": .5, "stale": 9}, .1, .01, None) == (False, False)
+
+
+def test_svm_monitor_stops_pretraining_early_and_resume_respects_it(tmp_path):
+    h5py = pytest.importorskip("h5py")
+    pytest.importorskip("sklearn")
+
+    rng = np.random.default_rng(0)
+    labels = np.arange(30) % 3
+    clouds = rng.normal(size=(30, 64, 3)).astype(np.float32)
+    clouds[..., 0] *= 1 + 2 * labels[:, None]
+    with h5py.File(tmp_path / "ply_data_train0.h5", "w") as archive:
+        archive["data"], archive["label"] = clouds, labels[:, None].astype(np.uint8)
+    # min-delta 1 makes every check after the first one count as stale.
+    common = ["--smoke", "--output", str(tmp_path / "run"), "--monitor-svm", str(tmp_path),
+              "--monitor-every", "1", "--patience", "1", "--min-delta", "0.999"]
+    train(parser().parse_args(common + ["--epochs", "4"]))
+    metrics = [json.loads(line) for line in (tmp_path / "run/metrics.jsonl").read_text().splitlines()]
+    assert [row["epoch"] for row in metrics] == [1, 2] and all("svm_val_accuracy" in row for row in metrics)
+    assert (tmp_path / "run/best_svm.pth").is_file() and (tmp_path / "run/backbone_best_svm.pth").is_file()
+    train(parser().parse_args(common + ["--epochs", "4", "--resume", str(tmp_path / "run/last.pth")]))
+    assert len((tmp_path / "run/metrics.jsonl").read_text().splitlines()) == 2
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA graphs need a GPU")
+def test_sinkhorn_cuda_graph_matches_eager_iterations():
+    from models.common import sinkhorn
+
+    cost = torch.rand(4, 256, 16, device="cuda", dtype=torch.float64)
+    p = torch.full((4, 256), 1 / 256, device="cuda", dtype=torch.float64)
+    q = torch.full((4, 16), 1 / 16, device="cuda", dtype=torch.float64)
+    with torch.no_grad():
+        for anneal in (False, True):
+            eager, _ = sinkhorn(cost, p, q, 1e-2, 1e-6, 300, check_every=10, anneal=anneal, use_graph=False)
+            graphed, _ = sinkhorn(cost, p, q, 1e-2, 1e-6, 300, check_every=10, anneal=anneal)
+            torch.testing.assert_close(graphed, eager)
