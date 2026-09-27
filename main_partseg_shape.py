@@ -26,7 +26,6 @@ from models.dgcnn import DGCNNPartSeg
 
 global class_cnts
 class_indexs = np.zeros((16,), dtype=int)
-global visual_warning
 visual_warning = True
 
 class_choices = ['airplane', 'bag', 'cap', 'car', 'chair', 'earphone', 'guitar', 'knife', 'lamp', 'laptop', 'motorbike',
@@ -103,7 +102,7 @@ def calculate_shape_IoU(pred_np, seg_np, label, class_choice, visual=False):
 
 
 def visualization(root, visu, visu_format, data, pred, seg, label, partseg_colors, class_choice):
-    global class_indexs
+    global visual_warning
     visu = visu.split('_')
     for i in range(0, data.shape[0]):
         RGB = []
@@ -369,7 +368,7 @@ def test(args, io, test_loader):
 if __name__ == "__main__":
     # Training settings
     parser = argparse.ArgumentParser(description='Point Cloud Part Segmentation')
-    parser.add_argument('--root', type=str, default='/home/gmei/Data/data', help="dataset path")
+    parser.add_argument('--root', type=str, default='data', help="dataset path")
     parser.add_argument('--exp_name', type=str, default='dgcnn_part', metavar='N',
                         help='Name of the experiment')
     parser.add_argument('--restore', action='store_true', default=False,

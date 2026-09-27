@@ -8,7 +8,6 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
-from torch.autograd import Variable
 
 
 class STN3d(nn.Module):
@@ -29,7 +28,6 @@ class STN3d(nn.Module):
         self.bn5 = nn.BatchNorm1d(256)
 
     def forward(self, x):
-        B = x.size()[0]
         x = F.relu(self.bn1(self.conv1(x)))
         x = F.relu(self.bn2(self.conv2(x)))
         x = F.relu(self.bn3(self.conv3(x)))
@@ -38,9 +36,7 @@ class STN3d(nn.Module):
         x = F.relu(self.bn4(self.fc1(x)))
         x = F.relu(self.bn5(self.fc2(x)))
         x = self.fc3(x)
-        iden = Variable(torch.eye(3, dtype=torch.float32, device=x.device)).view(1, 9).repeat(B, 1)
-        if x.is_cuda:
-            iden = iden.cuda()
+        iden = torch.eye(3, dtype=x.dtype, device=x.device).reshape(1, 9)
         x = x + iden
         x = x.view(-1, 3, 3)
         return x
@@ -66,7 +62,6 @@ class STNkd(nn.Module):
         self.k = k
 
     def forward(self, x):
-        B = x.size()[0]
         x = F.relu(self.bn1(self.conv1(x)))
         x = F.relu(self.bn2(self.conv2(x)))
         x = F.relu(self.bn3(self.conv3(x)))
@@ -76,9 +71,7 @@ class STNkd(nn.Module):
         x = F.relu(self.bn5(self.fc2(x)))
         x = self.fc3(x)
 
-        iden = Variable(
-            torch.eye(self.k, dtype=torch.float32,
-                      device=x.device)).view(1, self.k ** 2).repeat(B, 1)
+        iden = torch.eye(self.k, dtype=x.dtype, device=x.device).reshape(1, self.k ** 2)
         x = x + iden
         x = x.view(-1, self.k, self.k)
         return x
@@ -105,8 +98,7 @@ class PointNet(nn.Module):
         feature = None
         if D > 3:
             x, feature = x.split([3, D - 3], dim=2)
-        if self.feature_transform:
-            x = torch.bmm(x, trans)
+        x = torch.bmm(x, trans)
         if D > 3:
             x = torch.cat([x, feature], dim=2)
         x = x.transpose(2, 1)
@@ -130,7 +122,7 @@ class PointNet(nn.Module):
         elif self.feat_type == 'detailed':
             return x, out1, out2, out3
         else:  # concatenate global and local feature together
-            x = x.view(-1, 1024, 1).repeat(1, 1, N)
+            x = x.unsqueeze(-1).expand(-1, -1, N)
             return torch.cat([x, point_feat], 1), out3, trans_feat
 
 

@@ -855,7 +855,7 @@ def get_colored_point_cloud_pca_sep(xyz, feature, name):
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(xyz[:, 0:3])
     pcd.colors = o3d.utility.Vector3dVector(pca_gf)
-    o3d.io.write_point_cloud(name + f'.ply', pcd)
+    o3d.io.write_point_cloud(name + '.ply', pcd)
 
 
 def embed_tsne(data):

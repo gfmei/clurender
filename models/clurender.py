@@ -5,141 +5,18 @@
 # @Email   : Guofeng.Mei@student.uts.edu.au
 # @File    : clurender.py
 # @Software: PyCharm
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.nn import TransformerEncoderLayer
+from torch.utils.checkpoint import checkpoint
 
 from models.common import (square_distance, sinkhorn, get_module_device, feature_transform_regularizer,
-                           transform_points_tsfm, points_to_ndc, farthest_point_sample, index_points)
+                           transform_points_tsfm, points_to_ndc)
 from models.renderer import PointRenderer
-
-
-class TransformerLayer(nn.Module):
-    def __init__(self, dim_in, dim_out):
-        super(TransformerLayer, self).__init__()
-        self.dim_in = dim_in
-        self.dim_out = dim_out
-        self.query = nn.Conv1d(dim_in, dim_out, kernel_size=1)
-        self.key = nn.Conv1d(dim_in, dim_out, kernel_size=1)
-        self.value = nn.Conv1d(dim_in, dim_out, kernel_size=1)
-        self.fc = nn.Conv1d(dim_out, dim_out, kernel_size=1)
-
-    def forward(self, x):
-        q = self.query(x)
-        k = self.key(x)
-        v = self.value(x)
-
-        attn_weights = F.softmax(torch.bmm(q.permute(0, 2, 1), k), dim=-1)
-        attn_output = torch.bmm(v, attn_weights.permute(0, 2, 1))
-        attn_output = self.fc(attn_output)
-
-        return attn_output + x
-
-
-class TransformerDownSampling(nn.Module):
-    def __init__(self, in_dim, out_dim, num_points, is_center=True):
-        super(TransformerDownSampling, self).__init__()
-        self.num_points = num_points
-        self.is_center = is_center
-        self.conv = nn.Sequential(
-            nn.Conv1d(in_dim, out_dim, kernel_size=1),
-            nn.InstanceNorm1d(out_dim),
-            nn.ReLU()
-        )
-
-    def forward(self, points, features):
-        features = self.conv(features.transpose(-1, -2)).transpose(-1, -2)
-        idx = farthest_point_sample(points, self.num_points, is_center=self.is_center)
-
-        sampled_points = index_points(points, idx)
-        sampled_features = index_points(features, idx)
-
-        return sampled_points, sampled_features
-
-
-class TransformerUpSampling(nn.Module):
-    def __init__(self, in_dim, out_dim):
-        super(TransformerUpSampling, self).__init__()
-        self.conv = nn.Sequential(
-            nn.Conv1d(in_dim, out_dim, kernel_size=1),
-            nn.InstanceNorm1d(out_dim),
-            nn.ReLU()
-        )
-
-    def forward(self, xyz1, xyz2, features1, features2):
-        B, N, C = xyz1.shape
-        _, S, _ = xyz2.shape
-
-        if S == 1:
-            interpolated_feastures = features2.repeat(1, N, 1)
-        else:
-            dists = square_distance(xyz1, xyz2)
-            dists, idx = dists.sort(dim=-1)
-            dists, idx = dists[:, :, :3], idx[:, :, :3]  # [B, N, 3]
-
-            dist_recip = 1.0 / (dists + 1e-8)
-            norm = torch.sum(dist_recip, dim=2, keepdim=True)
-            weight = dist_recip / norm
-            interpolated_feastures = torch.sum(index_points(features2, idx) * weight.view(B, N, 3, 1), dim=2)
-
-        if features1 is not None:
-            new_featuress = torch.cat([features1, interpolated_feastures], dim=-1)
-        else:
-            new_featuress = interpolated_feastures
-        new_featuress = new_featuress.permute(0, 2, 1)
-        new_featuress = self.conv(new_featuress)
-
-        return new_featuress.permute(0, 2, 1)
-
-
-class UNetTransformer(nn.Module):
-    def __init__(self, in_channels, out_channels, num_samples_list, d_dims, u_dims, num_heads, is_center=True):
-        super(UNetTransformer, self).__init__()
-        self.downsampling = nn.ModuleList()
-        self.upsampling = nn.ModuleList()
-        self.encoder_layers = nn.ModuleList()
-        self.decoder_layers = nn.ModuleList()
-        self.is_center = is_center
-        self.num_stages = len(num_samples_list)  # Number of downsampling stages
-
-        # Downsampling layers
-        self.conv = nn.Conv1d(in_channels, d_dims[0], kernel_size=1)
-        for i in range(self.num_stages):
-            self.downsampling.append(
-                TransformerDownSampling(in_channels, d_dims[i], num_samples_list[i], self.is_center))
-            in_channels = d_dims[i]
-            self.encoder_layers.append(TransformerEncoderLayer(d_dims[i], num_heads))
-
-        # Upsampling layers
-        for i in range(self.num_stages):
-            in_channels = d_dims[self.num_stages - i - 1] + d_dims[self.num_stages - i - 2]
-            self.upsampling.append(TransformerUpSampling(in_channels, u_dims[i]))
-            self.decoder_layers.append(TransformerEncoderLayer(u_dims[i], num_heads))
-        self.final_conv = nn.Conv1d(u_dims[-1], out_channels, kernel_size=1)
-
-    def forward(self, points, features):
-        skip_connections = []
-        # Downsample
-        sampled_points = points
-        ds_features = self.conv(features.transpose(-1, -2)).transpose(-1, -2)
-        for i in range(self.num_stages):
-            # sample points and features
-            sampled_points, ds_features = self.downsampling[i](sampled_points, ds_features)
-            skip_connections.append((sampled_points, ds_features))
-            ds_features = self.encoder_layers[i](ds_features)
-
-        # Upsample
-        for i in range(self.num_stages):
-            xyz1, features1 = skip_connections[self.num_stages - i - 1]
-            xyz2, features2 = skip_connections[self.num_stages - i - 2]
-            features = self.upsampling[i](xyz1, xyz2, features1, features2)
-            features = self.decoder_layers[i](features)
-
-        # Final convolution
-        output = self.final_conv(features.transpose(-1, -2))
-
-        return output
+from models.color import UNetTransformer
+from models.losses import BalancedClustering, ImageWassersteinLoss, SlicedImageLoss, round_transport_plan
 
 
 def ot_assign(x, y, epsilon=1e-3, thresh=1e-3, max_iter=30, dst='fe'):
@@ -148,15 +25,27 @@ def ot_assign(x, y, epsilon=1e-3, thresh=1e-3, max_iter=30, dst='fe'):
     num_y = y.shape[-1]
     # both marginals are fixed with equal weights
     p = torch.empty(batch_size, num_x, dtype=torch.float,
-                    requires_grad=False, device=device).fill_(1.0 / num_x).squeeze()
+                    requires_grad=False, device=device).fill_(1.0 / num_x)
     q = torch.empty(batch_size, num_y, dtype=torch.float,
-                    requires_grad=False, device=device).fill_(1.0 / num_y).squeeze()
+                    requires_grad=False, device=device).fill_(1.0 / num_y)
     if dst == 'eu':
         cost = square_distance(x.transpose(-1, -2), y.transpose(-1, -2))
     else:
         cost = 2.0 - 2.0 * torch.einsum('bdn,bdm->bnm', x, y)
     gamma, loss = sinkhorn(cost, p, q, epsilon, thresh, max_iter)
     return gamma, loss
+
+
+def balanced_assign(x, y, dst='fe', max_iter=1000):
+    """Balanced pseudo-labels [b, k, n] for points x [b, d, n] and centers y [b, d, k].
+
+    Each point's labels sum to one even when Sinkhorn stops before converging.
+    """
+    gamma, _ = ot_assign(x, y, max_iter=max_iter, dst=dst)
+    batch, num_x, num_y = gamma.shape
+    gamma = round_transport_plan(gamma, gamma.new_full((batch, num_x), 1.0 / num_x),
+                                 gamma.new_full((batch, num_y), 1.0 / num_y))
+    return num_x * gamma.transpose(-1, -2)
 
 
 def dis_assign(x, y, tau=0.01, dst='eu'):
@@ -175,40 +64,6 @@ def dis_assign(x, y, tau=0.01, dst='eu'):
         cost = 2.0 * torch.einsum('bdn,bdj->bnj', x, y)
     gamma = F.softmax(cost / tau, dim=-1)
     return gamma.transpose(-1, -2), cost
-
-
-class SlicedWassersteinDistance(nn.Module):
-    def __init__(self, num_projections=1000):
-        super(SlicedWassersteinDistance, self).__init__()
-        self.num_projections = num_projections
-
-    def forward(self, x, y):
-        assert x.shape == y.shape
-        b, w, h, c = x.shape
-        x = x.permute(0, 3, 1, 2).reshape(b, c, -1)  # Flatten spatial dimensions
-        y = y.permute(0, 3, 1, 2).reshape(b, c, -1)
-
-        # Create coordinate grid
-        grid_y, grid_x = torch.meshgrid(torch.linspace(-1, 1, h), torch.linspace(-1, 1, w))
-        grid = torch.stack((grid_x, grid_y), 0).to(x.device)  # 2, W, H
-        grid = grid.unsqueeze(0).repeat(b, 1, 1, 1).reshape(b, 2, -1)  # Add coordinates as channels
-
-        x = torch.cat((x, grid), 1)  # Add the coordinates to the feature dimension
-        y = torch.cat((y, grid), 1)
-
-        projections = torch.randn((self.num_projections, 5)).to(x.device)
-
-        x_projections = (x.unsqueeze(1) * projections.view(1, self.num_projections, 5, 1)).sum(dim=-2)
-        y_projections = (y.unsqueeze(1) * projections.view(1, self.num_projections, 5, 1)).sum(dim=-2)
-
-        swd = (x_projections.sort(dim=-1)[0] - y_projections.sort(dim=-1)[0]).pow(2).mean().sqrt()
-        return swd
-
-
-def renderer_loss(rendered_imgs, gt_imgs, num_projections=1000):
-    swd = SlicedWassersteinDistance(num_projections)
-    loss = swd(rendered_imgs, gt_imgs)
-    return loss
 
 
 class CONV(nn.Module):
@@ -249,8 +104,7 @@ class PointCluOT(nn.Module):
         """
         num_clusters: int The number of clusters
         dim: int Dimension of descriptors
-        alpha: float Parameter of initialization. Larger value is harder assignment.
-        normalize_input: bool If true, descriptor-wise L2 normalization is applied to input.
+        ablation: str Cluster on 'xyz', 'fea' (features), or 'all' (both)
         """
         super().__init__()
         self.num_clusters = num_clusters
@@ -268,8 +122,7 @@ class PointCluOT(nn.Module):
             mu_xyz = torch.einsum('bkn,bdn->bdk', score, xyz) / pi  # [b, d, k]
             reg_xyz = 0.001 * regular(mu_xyz)
             with torch.no_grad():
-                assign_xyz, dis = ot_assign(xyz, mu_xyz.detach(), max_iter=25, dst='eu')
-                assign_xyz = num * assign_xyz.transpose(-1, -2)  # [b, k, n]
+                assign_xyz = balanced_assign(xyz, mu_xyz.detach(), dst='eu')  # [b, k, n]
         else:
             assign_xyz = torch.zeros_like(score).to(xyz)
             reg_xyz = torch.tensor(0.0).to(xyz)
@@ -279,8 +132,7 @@ class PointCluOT(nn.Module):
             n_mu = F.normalize(mu_fea, dim=1, p=2)
             reg_fea = regular(n_mu)
             with torch.no_grad():
-                assign_fea, dis = ot_assign(n_feature.detach(), n_mu.detach(), max_iter=25)
-                assign_fea = num * assign_fea.transpose(-1, -2)
+                assign_fea = balanced_assign(n_feature.detach(), n_mu.detach())
         else:
             assign_fea = torch.zeros_like(score).to(xyz)
             reg_fea = torch.tensor(0.0).to(xyz)
@@ -294,8 +146,7 @@ class PointCluDS(nn.Module):
         """
         num_clusters: int The number of clusters
         dim: int Dimension of descriptors
-        alpha: float Parameter of initialization. Larger value is harder assignment.
-        normalize_input: bool If true, descriptor-wise L2 normalization is applied to input.
+        ablation: str Cluster on 'xyz', 'fea' (features), or 'all' (both)
         """
         super().__init__()
         self.num_clusters = num_clusters
@@ -357,90 +208,115 @@ class ClusterNet(nn.Module):
         :return:
         """
         if return_embedding:
-            return self.backbone(x, True)
+            return self.backbone(x)[0]
         out = self.backbone(x)
-        trans_loss = torch.tensor(0.0, requires_grad=True)
+        trans_loss = x.new_zeros(())
         if len(out) == 2:
             feature, wise = out
         else:
             feature, wise, trans = out
             if trans is not None:
                 trans_loss = 0.001 * feature_transform_regularizer(trans)
-        loss_rq = self.cluster(wise, x)
+        loss_rq = self.cluster(wise, x[:, :3])
 
         return loss_rq, trans_loss
 
 
 class CluRender(nn.Module):
-    def __init__(self,
-                 backbone,
-                 dim=1024,
-                 num_clus=64,
-                 render_cfg=None,
-                 render_dim=3,
-                 c_type='ot'):
+    """Joint clustering and multi-view neural rendering pretraining.
+
+    ``points``: B x 3 x N, ``images``: B x V x 3 x H x W,
+    ``tsfms``: B x V x 4 x 4 world-to-camera OpenCV transforms,
+    ``K``: B x V x 3 x 3 (or shared B x 3 x 3) pixel intrinsics.
+    Lists of B-sized views are also accepted for the original interface.
+    The total loss is clustering + render_weight * rendering + transform;
+    ``return_details`` reports the unweighted rendering term.
+    """
+
+    def __init__(self, backbone, dim=1024, num_clus=64, render_cfg=None,
+                 render_dim=3, c_type='ot', image_loss='sinkhorn',
+                 ot_backend='auto', image_blur=0.01, num_projections=128,
+                 sinkhorn_iterations=2000, epsilon=0.001, orthogonal_weight=0.01,
+                 color_dims=(512, 256, 128, 128, 64, 32),
+                 round_assignments=True, checkpoint_rendering=False,
+                 sinkhorn_tolerance=0.01, render_weight=1.0):
         super().__init__()
+        if render_dim != 3 or c_type != 'ot':
+            raise ValueError("CluRender pretraining requires RGB output and OT clustering")
+        if len(color_dims) != 6:
+            raise ValueError("color_dims must contain six dimensions")
+        if not math.isfinite(render_weight) or render_weight < 0:
+            raise ValueError("render_weight must be finite and nonnegative")
         self.backbone = backbone
-        self.cluster = PointCluOT(num_clusters=num_clus, dim=dim)
-        self.color = CONV(in_size=dim, out_size=render_dim, hidden_size=dim // 2, used='proj')
+        self.cluster = BalancedClustering(dim, num_clus, epsilon, sinkhorn_iterations,
+                                          orthogonal_weight, round_assignments, sinkhorn_tolerance)
+        self.render_weight = render_weight
+        self.checkpoint_rendering = checkpoint_rendering
+        self.color = UNetTransformer(dim, 3, d_dims=color_dims[:3], u_dims=color_dims[3:])
         self.render = PointRenderer(render_cfg)
-        self.c_type = c_type
-        device = get_module_device(backbone)
-        self.to(device)
-
-    def forward(self, points, images=None, tsfms=None, K=None, return_embedding=False):
-        """
-        :param images:
-        :param tsfms:
-        :param points: [bz, dim, num]
-        :param return_embedding:
-        :return:
-        """
-        if return_embedding:
-            return self.backbone(points, True)
-        out = self.backbone(points)
-        trans_loss = torch.tensor(0.0, requires_grad=True)
-        if len(out) == 2:
-            feature, wise = out
+        if image_loss == 'sinkhorn':
+            self.fitting = ImageWassersteinLoss(blur=image_blur, backend=ot_backend)
+        elif image_loss == 'sliced':
+            self.fitting = SlicedImageLoss(num_projections)
         else:
-            feature, wise, trans = out
-            if trans is not None:
-                trans_loss = 0.001 * feature_transform_regularizer(trans)
-        render_loss = []
-        pcd_lists = [transform_points_tsfm(points.transpose(1, 2), tsfm) for tsfm in tsfms]
-        colors = self.color(wise)
-        B, _, H, W = images[0].shape
-        for i in range(len(tsfms)):
-            pcd_i = points_to_ndc(pcd_lists[i], K, [H, W])
-            render_loss_i = renderer_loss(self.render(pcd_i, colors), images[i])
-            render_loss.append(render_loss_i)
-        loss_clu = self.cluster(wise, points)
-        trans_loss += loss_clu + torch.tensor(render_loss).sum()
+            raise ValueError("image_loss must be 'sinkhorn' or 'sliced'")
+        self.to(get_module_device(backbone))
 
-        return trans_loss
+    def _render_view(self, ndc, colors):
+        rendered = self.render(ndc, colors, return_raster=False)
+        return rendered['feats'], rendered['valid_rays'].detach().mean()
 
-
-if __name__ == '__main__':
-    # Example usage
-    # in_channels = 32
-    # out_channels = 32
-    # N = 1024  # Number of input points
-    # num_samples_list = [512, 256, 128]
-    # points = torch.randn(2, N, 3)  # Input point coordinates
-    # features = torch.randn(2, N, in_channels)  # Input point features
-    # model = UNetTransformer(in_channels, out_channels, num_samples_list, [32, 64, 128], [128, 64, 32], 2)
-    # output = model(points, features)
-    # Example usage
-    batch_size = 4
-    width = 128
-    height = 128
-
-    # Generate random rendered and ground truth images
-    rendered_images = torch.randn(batch_size, width, height, 3)
-    ground_truth_images = torch.randn(batch_size, width, height, 3)
-
-    # Calculate image loss
-    loss = renderer_loss(rendered_images, ground_truth_images)
-
-    print(loss)
-
+    def forward(self, points, images=None, tsfms=None, K=None,
+                return_embedding=False, return_details=False):
+        if points.ndim != 3 or points.shape[1] != 3:
+            raise ValueError("points must have shape (B, 3, N)")
+        out = self.backbone(points)
+        if return_embedding:
+            return out[0]
+        if images is None or tsfms is None or K is None:
+            raise ValueError("Joint pretraining requires paired images, transforms, and intrinsics")
+        if isinstance(images, (list, tuple)):
+            images = torch.stack(images, dim=1)
+        if isinstance(tsfms, (list, tuple)):
+            tsfms = torch.stack(tsfms, dim=1)
+        if isinstance(K, (list, tuple)):
+            K = torch.stack(K, dim=1)
+        batch = points.shape[0]
+        if images.ndim != 5 or images.shape[0] != batch or images.shape[2] != 3:
+            raise ValueError("images must have shape (B, V, 3, H, W)")
+        views = images.shape[1]
+        if views == 0 or tsfms.shape != (batch, views, 4, 4):
+            raise ValueError("Provide one 4 x 4 world-to-camera transform per image")
+        if K.shape == (batch, 3, 3):
+            K = K.unsqueeze(1).expand(-1, views, -1, -1)
+        if K.shape != (batch, views, 3, 3):
+            raise ValueError("Intrinsics must be (B, 3, 3) or (B, V, 3, 3)")
+        height, width = images.shape[-2:]
+        if (height, width) != self.render.image_size:
+            raise ValueError("Target image dimensions must match render_size")
+        wise = out[1]
+        trans_loss = points.new_zeros(())
+        if len(out) > 2 and out[2] is not None:
+            trans_loss = 0.001 * feature_transform_regularizer(out[2])
+        xyz = points.transpose(1, 2)
+        colors = self.color(xyz, wise.transpose(1, 2)).sigmoid().transpose(1, 2)
+        view_losses = []
+        coverage = []
+        for view in range(views):
+            camera_points = transform_points_tsfm(xyz, tsfms[:, view])
+            ndc = points_to_ndc(camera_points, K[:, view], [height, width])
+            if self.checkpoint_rendering and torch.is_grad_enabled() and colors.requires_grad:
+                image, visible = checkpoint(self._render_view, ndc, colors, use_reentrant=False)
+            else:
+                image, visible = self._render_view(ndc, colors)
+            view_losses.append(self.fitting(image, images[:, view]))
+            coverage.append(visible)
+        loss_clu, clustering_details = self.cluster(wise, points, return_details=True)
+        loss_render = torch.stack(view_losses).sum()
+        total = loss_clu + self.render_weight * loss_render + trans_loss
+        if return_details:
+            return {"loss": total, "clustering": loss_clu, "rendering": loss_render,
+                    "transform": trans_loss, "coverage": torch.stack(coverage).mean(),
+                    "assignment_error": clustering_details["unrounded_marginal_error"],
+                    "batch_size": points.new_tensor(batch)}
+        return total

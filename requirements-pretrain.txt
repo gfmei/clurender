@@ -1,0 +1,8 @@
+torch>=2.1
+numpy>=1.24
+Pillow>=9
+scipy>=1.10
+geomloss==0.2.6
+# Full-resolution Sinkhorn fitting uses the online KeOps backend.
+pykeops>=2.2
+# Install PyTorch3D separately for your PyTorch/CUDA version (see README).

@@ -21,7 +21,6 @@ from plyfile import PlyData, PlyElement
 from tensorboardX import SummaryWriter
 from torch.optim import SGD, Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR
-from torch.utils.data import DataLoader
 from torch_scatter import scatter_sum
 from tqdm import tqdm
 
@@ -183,11 +182,9 @@ def train(args, io):
         train_set, batch_size=BATCH_SIZE, shuffle=True,
         num_workers=min(32, BATCH_SIZE), pin_memory=True, drop_last=True,
         worker_init_fn=lambda x: np.random.seed(x + int(time.time())))
-    weights = None
     io.cprint("The number of training data is: %d" % len(train_set))
 
     '''CREATE DIR'''
-    start_datetime = time.strftime("%Y-%m-%d_%H:%M:%S", time.localtime())
     logs_dir = "outputs/{}/".format(
         args.exp_name)
 
@@ -200,8 +197,6 @@ def train(args, io):
     MOMENTUM_DECCAY_STEP = args.step_size
 
     global_epoch = 0
-    best_iou = 0
-    best_iou_epoch = -1
 
     for epoch in range(start_epoch, args.epoch + 1):
         '''Train on chopped scenes'''
