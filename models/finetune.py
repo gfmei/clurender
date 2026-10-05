@@ -1,8 +1,8 @@
-"""Downstream models that share one pretrained DGCNN encoder.
+"""Downstream models that share one pretrained encoder.
 
 Classification and part segmentation add task heads to the same encoder that
-main_pretrain.py trains (``--model dgcnn``), so every task starts from one set
-of pretrained weights.
+main_pretrain.py trains (DGCNN, or the batched OctFormer), so every task
+starts from one set of pretrained weights.
 """
 
 import torch
@@ -11,17 +11,19 @@ from torch.nn import functional as F
 
 from models.common import farthest_point_sample, index_points
 from models.dgcnn import DGCNN
+from models.encoders import encoder_name
 
 
 def load_encoder(encoder, path):
-    """Load pretrained DGCNN encoder weights; every weight must match exactly.
+    """Load pretrained encoder weights; every weight must match exactly.
 
     Accepts ``backbone.pth`` or a full main_pretrain.py checkpoint.
     """
     state = torch.load(path, map_location="cpu", weights_only=True)
     if "model" in state and "args" in state:
-        if state["args"].get("model") != "dgcnn":
-            raise ValueError(f"{path} was pretrained with --model {state['args'].get('model')}, not dgcnn")
+        expected = encoder_name(encoder)
+        if state["args"].get("model", "dgcnn") != expected:
+            raise ValueError(f"{path} was pretrained with --model {state['args'].get('model')}, not {expected}")
         state = {name.removeprefix("backbone."): value for name, value in state["model"].items()
                  if name.startswith("backbone.")}
     encoder.load_state_dict(state)
@@ -82,7 +84,7 @@ def build_optimizer(model, args):
 
 def set_encoder_frozen(model, frozen):
     """Freeze the encoder for linear probing: no gradients and fixed BatchNorm
-    statistics. Call after model.train()."""
+    statistics and drop path. Call after model.train()."""
     model.encoder.requires_grad_(not frozen)
     if frozen:
         model.encoder.eval()
@@ -99,9 +101,10 @@ def part_mask(categories, device=None):
 class DGCNNClassifier(nn.Module):
     """Encoder, then max- and average-pooled features into an MLP."""
 
-    def __init__(self, num_classes, emb_dims=1024, k=20, dropout=0.5):
+    def __init__(self, num_classes, emb_dims=1024, k=20, dropout=0.5, encoder=None):
         super().__init__()
-        self.encoder = DGCNN(emb_dims, k, num_cls=-1)
+        self.encoder = DGCNN(emb_dims, k, num_cls=-1) if encoder is None else encoder
+        emb_dims = self.encoder.emb_dims
         self.head = nn.Sequential(
             nn.Linear(2 * emb_dims, 512, bias=False), nn.BatchNorm1d(512), nn.LeakyReLU(.2), nn.Dropout(dropout),
             nn.Linear(512, 256, bias=False), nn.BatchNorm1d(256), nn.LeakyReLU(.2), nn.Dropout(dropout),
@@ -115,16 +118,17 @@ class DGCNNClassifier(nn.Module):
 class DGCNNPartSegmenter(nn.Module):
     """Encoder, then per-point MLP over multi-level, global and category features.
 
-    Each point gets the four EdgeConv features, the final per-point feature,
-    the global max-pooled feature, and an embedding of the object category.
+    Each point gets the encoder's level features (DGCNN's four EdgeConv
+    outputs, or OctFormer's FPN levels), the final per-point feature, the
+    global max-pooled feature, and an embedding of the object category.
     """
 
-    def __init__(self, num_parts=50, num_categories=16, emb_dims=1024, k=40, dropout=0.5):
+    def __init__(self, num_parts=50, num_categories=16, emb_dims=1024, k=40, dropout=0.5, encoder=None):
         super().__init__()
         self.num_categories = num_categories
-        self.encoder = DGCNN(emb_dims, k, num_cls=-1)
+        self.encoder = DGCNN(emb_dims, k, num_cls=-1) if encoder is None else encoder
         self.label = nn.Sequential(nn.Conv1d(num_categories, 64, 1, bias=False), nn.BatchNorm1d(64), nn.LeakyReLU(.2))
-        width = 64 + 64 + 128 + 256 + 2 * emb_dims + 64
+        width = sum(self.encoder.level_dims) + 2 * self.encoder.emb_dims + 64
         self.head = nn.Sequential(
             nn.Conv1d(width, 256, 1, bias=False), nn.BatchNorm1d(256), nn.LeakyReLU(.2), nn.Dropout(dropout),
             nn.Conv1d(256, 256, 1, bias=False), nn.BatchNorm1d(256), nn.LeakyReLU(.2), nn.Dropout(dropout),

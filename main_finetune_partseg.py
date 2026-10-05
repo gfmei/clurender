@@ -1,4 +1,4 @@
-"""Fine-tune the pretrained DGCNN encoder for ShapeNetPart part segmentation.
+"""Fine-tune the pretrained encoder for ShapeNetPart part segmentation.
 
 Evaluation follows Point-MAE's segmentation/main.py: predictions are limited
 to the parts of each object's category, a part absent from both prediction and
@@ -19,6 +19,7 @@ from torch.utils.data import DataLoader
 
 from datasets.shapenetpart import CATEGORIES, PartSegMetrics, ShapeNetPartText
 from main_finetune_cls import atomic_save
+from models.encoders import ENCODERS, add_octformer_arguments, downstream_encoder
 from models.finetune import (DGCNNPartSegmenter, augment, build_optimizer, load_encoder, part_mask,
                              set_encoder_frozen)
 
@@ -53,6 +54,9 @@ def parser():
     p.add_argument("--workers", type=int, default=8)
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--model", choices=ENCODERS, default="dgcnn",
+                   help="Encoder when training from scratch; a full pretraining checkpoint sets it")
+    add_octformer_arguments(p)
     return p
 
 
@@ -86,7 +90,7 @@ def run(args):
     pin = args.device.startswith("cuda")
     test_loader = DataLoader(test, batch_size=args.batch_size, num_workers=args.workers, pin_memory=pin)
 
-    model = DGCNNPartSegmenter(emb_dims=args.emb_dims, k=args.k, dropout=args.dropout)
+    model = DGCNNPartSegmenter(dropout=args.dropout, encoder=downstream_encoder(args))
     loaded = load_encoder(model.encoder, args.pretrained) if args.pretrained else 0
     model.to(args.device)
     mask = part_mask(CATEGORIES, args.device)

@@ -1,4 +1,4 @@
-"""Fine-tune the pretrained DGCNN encoder for point cloud classification.
+"""Fine-tune the pretrained encoder for point cloud classification.
 
 Datasets: ModelNet40, ScanObjectNN (objbg, objonly, hardest), or one few-shot
 ModelNet40 episode. Evaluation follows Point-MAE's runner_finetune.py: after
@@ -19,6 +19,7 @@ import torch
 from torch.nn import functional as F
 
 from datasets.downstream import load_classification
+from models.encoders import ENCODERS, add_octformer_arguments, downstream_encoder
 from models.finetune import DGCNNClassifier, augment, build_optimizer, load_encoder, subsample
 
 
@@ -50,6 +51,9 @@ def parser():
     p.add_argument("--votes", type=int, default=10)
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--model", choices=ENCODERS, default="dgcnn",
+                   help="Encoder when training from scratch; a full pretraining checkpoint sets it")
+    add_octformer_arguments(p)
     return p
 
 
@@ -97,7 +101,7 @@ def run(args):
     test_input = torch.cat([subsample(batch.to(args.device), args.num_points).cpu()
                             for batch in test_points.split(args.batch_size)])
 
-    model = DGCNNClassifier(num_classes, args.emb_dims, args.k, args.dropout)
+    model = DGCNNClassifier(num_classes, dropout=args.dropout, encoder=downstream_encoder(args))
     loaded = load_encoder(model.encoder, args.pretrained) if args.pretrained else 0
     model.to(args.device)
     optimizer, scheduler = build_optimizer(model, args)

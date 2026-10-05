@@ -17,7 +17,7 @@ from torch.utils.data.distributed import DistributedSampler
 
 from datasets.multiview import MultiViewPointCloudDataset, write_smoke_dataset
 from models.clurender import CluRender
-from models.dgcnn import DGCNN
+from models.encoders import add_octformer_arguments, build_encoder, encoder_checkpoint
 from models.pointnet import PointNet
 from models.renderer import RenderConfig
 
@@ -27,7 +27,8 @@ def parser():
     p.add_argument("--root", help="Paired .npz directory; defaults to $CLURENDER_DATA_DIR/paired")
     p.add_argument("--split", help="Text file listing sample paths relative to root")
     p.add_argument("--output", help="Checkpoint directory (default checkpoints/clurender)")
-    p.add_argument("--model", choices=("dgcnn", "pointnet"), default="dgcnn")
+    p.add_argument("--model", choices=("dgcnn", "pointnet", "octformer"), default="dgcnn",
+                   help="Encoder; octformer is a batched OctFormer (see models/octformer.py)")
     p.add_argument("--emb-dims", type=int, default=1024)
     p.add_argument("--k", type=int, default=20, help="DGCNN neighbors")
     p.add_argument("--num-points", type=int, default=1024)
@@ -81,12 +82,13 @@ def parser():
     p.add_argument("--patience", type=int, help="Stop after this many SVM checks without improvement")
     p.add_argument("--min-delta", type=float, default=None,
                    help="Validation accuracy gain that counts as improvement (default 0.002)")
+    add_octformer_arguments(p)
     return p
 
 
 def build_model(args):
-    if args.model == "dgcnn":
-        backbone = DGCNN(args.emb_dims, args.k, num_cls=-1)
+    if args.model in ("dgcnn", "octformer"):
+        backbone = build_encoder(vars(args))
     else:
         backbone = PointNet(args.emb_dims, feature_transform=True, feat_type="global")
     config = RenderConfig(render_size=args.image_size, points_per_pixel=args.points_per_pixel,
@@ -410,12 +412,12 @@ def train(args):
                  "loader_rng": generator.get_state(),
                  "cuda_rng": torch.cuda.get_rng_state_all() if device.type == "cuda" else []}
         atomic_save(state, output / "last.pth")
-        atomic_save(model.backbone.state_dict(), output / "backbone.pth")
+        atomic_save(encoder_checkpoint(model, args), output / "backbone.pth")
         if improved:
             atomic_save(state, output / "best.pth")
         if monitor_improved:
             atomic_save(state, output / "best_svm.pth")
-            atomic_save(model.backbone.state_dict(), output / "backbone_best_svm.pth")
+            atomic_save(encoder_checkpoint(model, args), output / "backbone_best_svm.pth")
         if (epoch + 1) % args.save_every == 0:
             atomic_save(state, output / f"epoch_{epoch + 1:04d}.pth")
         with (output / "metrics.jsonl").open("a") as stream:

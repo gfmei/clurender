@@ -1,4 +1,4 @@
-"""Linear SVM on frozen features of the pretrained DGCNN encoder.
+"""Linear SVM on frozen features of the pretrained encoder.
 
 The standard evaluation of unsupervised point cloud representations: global
 features (max- and average-pooled) of the frozen encoder, from a deterministic
@@ -14,7 +14,7 @@ import numpy as np
 import torch
 
 from datasets.downstream import load_classification
-from models.dgcnn import DGCNN
+from models.encoders import ENCODERS, add_octformer_arguments, downstream_encoder
 from models.finetune import load_encoder, subsample
 
 
@@ -33,6 +33,9 @@ def parser():
     p.add_argument("--emb-dims", type=int, default=1024)
     p.add_argument("--batch-size", type=int, default=64)
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    p.add_argument("--model", choices=ENCODERS, default="dgcnn",
+                   help="Encoder when training from scratch; a full pretraining checkpoint sets it")
+    add_octformer_arguments(p)
     return p
 
 
@@ -49,7 +52,7 @@ def run(args):
     from sklearn.svm import SVC
 
     torch.manual_seed(args.seed)
-    encoder = DGCNN(args.emb_dims, args.k, num_cls=-1)
+    encoder = downstream_encoder(args)
     if args.pretrained:
         load_encoder(encoder, args.pretrained)
     encoder.to(args.device).eval()

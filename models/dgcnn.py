@@ -17,6 +17,8 @@ class DGCNN(nn.Module):
     def __init__(self, emb_dims, k, dropout=0.5, num_cls=-1):
         super(DGCNN, self).__init__()
         self.k = k
+        self.emb_dims = emb_dims
+        self.level_dims = (64, 64, 128, 256)  # x1..x4 returned with return_levels
         self.conv1 = nn.Sequential(nn.Conv2d(6, 64, kernel_size=1, bias=False),
                                    nn.BatchNorm2d(64),
                                    nn.LeakyReLU(negative_slope=0.2))

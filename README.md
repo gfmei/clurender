@@ -165,7 +165,7 @@ of epochs. The main settings are:
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `--model` | `dgcnn` | Encoder: `dgcnn` or `pointnet` |
+| `--model` | `dgcnn` | Encoder: `dgcnn`, `octformer` (transformer) or `pointnet` |
 | `--num-clusters` | 64 | Clusters per point cloud |
 | `--num-views`, `--image-size` | 8, 256 | Views per object and their resolution |
 | `--epsilon` | 0.001 | Entropy of the clustering Sinkhorn |
@@ -185,10 +185,23 @@ remaining 20%; the ModelNet40 test split is not used. The best encoder is kept
 as `backbone_best_svm.pth`, and `--patience N` stops training after N checks
 without improvement.
 
+**Transformer encoder.** `--model octformer` pretrains a transformer encoder,
+a batched re-implementation of
+[OctFormer](https://github.com/octree-nn/octformer) that needs no octree
+library. Points are serialized along a z-order (octree) curve, or a Hilbert
+curve with `--serialization hilbert`; the first stage attends within windows
+of `--octformer-patch-size` consecutive points, alternately dilated, and the
+downsampled stages from `--octformer-full-attention-from` on attend over the
+whole cloud. `python main_pretrain.py --help` lists the `--octformer-*`
+settings, which `backbone.pth` stores together with the weights.
+
 ## Downstream Tasks
 
-All downstream scripts initialize the encoder from `backbone.pth`; omit
-`--pretrained` to train the same network from scratch. Classification and
+All downstream scripts initialize the encoder from `backbone.pth`, which also
+sets the encoder architecture; omit `--pretrained` to train the same network
+from scratch (`--model octformer` for the transformer encoder). We fine-tune
+the transformer encoder with AdamW, for example
+`--optimizer adamw --lr 5e-4 --min-lr 1e-6 --weight-decay 0.05`. Classification and
 segmentation follow the evaluation protocol of
 [Point-MAE](https://github.com/Pang-Yatian/Point-MAE).
 
@@ -265,6 +278,18 @@ encoder.load_state_dict(torch.load("checkpoints/clurender/backbone.pth", map_loc
 global_features, point_features = encoder(points)  # points: B x 3 x N
 ```
 
+A transformer encoder is rebuilt from the settings stored in its checkpoint:
+
+```python
+from models.encoders import build_encoder, checkpoint_settings
+from models.finetune import load_encoder
+
+path = "checkpoints/clurender-octformer/backbone.pth"
+encoder = build_encoder(checkpoint_settings(path))
+load_encoder(encoder, path)
+global_features, point_features = encoder(points)  # points: B x 3 x N
+```
+
 ## Implementation Details
 
 - **Clustering.** Pseudo-labels come from log-domain Sinkhorn iterations with
@@ -312,5 +337,7 @@ If you find this work useful, please cite:
 This repository builds on [DGCNN](https://github.com/WangYueFt/dgcnn),
 [Point-MAE](https://github.com/Pang-Yatian/Point-MAE),
 [Point-BERT](https://github.com/lulutang0608/Point-BERT),
-[PyTorch3D](https://github.com/facebookresearch/pytorch3d) and
-[GeomLoss](https://github.com/jeanfeydy/geomloss).
+[PyTorch3D](https://github.com/facebookresearch/pytorch3d),
+[GeomLoss](https://github.com/jeanfeydy/geomloss) and
+[OctFormer](https://github.com/octree-nn/octformer); the Hilbert serialization
+follows [Point Transformer V3](https://github.com/Pointcept/PointTransformerV3).

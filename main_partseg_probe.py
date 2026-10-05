@@ -19,6 +19,7 @@ from torch.utils.data import DataLoader
 
 from datasets.shapenetpart import CATEGORIES, PartSegMetrics, ShapeNetPartText
 from models.dgcnn import DGCNN
+from models.encoders import build_encoder
 from models.pointnet import PointNet
 
 
@@ -43,6 +44,8 @@ def load_encoder(path):
     config = state["args"]
     if config["model"] == "dgcnn":
         encoder = DGCNN(config["emb_dims"], config["k"], num_cls=-1)
+    elif config["model"] == "octformer":
+        encoder = build_encoder(config)
     elif config["model"] == "pointnet":
         encoder = PointNet(config["emb_dims"], feature_transform=True, feat_type="global")
     else:
