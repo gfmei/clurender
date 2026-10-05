@@ -23,7 +23,9 @@ def parser():
     p.add_argument("--dataset", choices=("modelnet40", "scanobjectnn"), default="modelnet40")
     p.add_argument("--root", required=True)
     p.add_argument("--variant", choices=("objbg", "objonly", "hardest"), default="hardest")
-    p.add_argument("--pretrained", required=True, help="backbone.pth or a full main_pretrain.py checkpoint")
+    p.add_argument("--pretrained", help="backbone.pth or a full main_pretrain.py checkpoint; "
+                   "omit for a randomly initialized encoder (reference)")
+    p.add_argument("--seed", type=int, default=0, help="Initialization seed when --pretrained is omitted")
     p.add_argument("--output", help="Optional results.json path")
     p.add_argument("--num-points", type=int, default=1024)
     p.add_argument("--c", type=float, default=0.1, help="SVM regularization")
@@ -46,8 +48,10 @@ def features(encoder, points, args):
 def run(args):
     from sklearn.svm import SVC
 
+    torch.manual_seed(args.seed)
     encoder = DGCNN(args.emb_dims, args.k, num_cls=-1)
-    load_encoder(encoder, args.pretrained)
+    if args.pretrained:
+        load_encoder(encoder, args.pretrained)
     encoder.to(args.device).eval()
     splits = {split: load_classification(args.dataset, args.root, split, variant=args.variant)
               for split in ("train", "test")}

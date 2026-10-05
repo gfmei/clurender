@@ -229,8 +229,10 @@ class CluRender(nn.Module):
     ``tsfms``: B x V x 4 x 4 world-to-camera OpenCV transforms,
     ``K``: B x V x 3 x 3 (or shared B x 3 x 3) pixel intrinsics.
     Lists of B-sized views are also accepted for the original interface.
-    The total loss is clustering + render_weight * rendering + transform;
-    ``return_details`` reports the unweighted rendering term.
+    The total loss is cluster_weight * clustering + render_weight * rendering
+    + transform; ``return_details`` reports the unweighted terms. A zero weight
+    removes that branch, so ablations spend no compute on it and
+    DistributedDataParallel sees no parameters without gradients.
     """
 
     def __init__(self, backbone, dim=1024, num_clus=64, render_cfg=None,
@@ -239,27 +241,35 @@ class CluRender(nn.Module):
                  sinkhorn_iterations=2000, epsilon=0.001, orthogonal_weight=0.01,
                  color_dims=(512, 256, 128, 128, 64, 32),
                  round_assignments=True, checkpoint_rendering=False,
-                 sinkhorn_tolerance=0.01, render_weight=1.0):
+                 sinkhorn_tolerance=0.01, render_weight=1.0, cluster_weight=1.0):
         super().__init__()
         if render_dim != 3 or c_type != 'ot':
             raise ValueError("CluRender pretraining requires RGB output and OT clustering")
         if len(color_dims) != 6:
             raise ValueError("color_dims must contain six dimensions")
-        if not math.isfinite(render_weight) or render_weight < 0:
-            raise ValueError("render_weight must be finite and nonnegative")
+        for name, weight in (("render_weight", render_weight), ("cluster_weight", cluster_weight)):
+            if not math.isfinite(weight) or weight < 0:
+                raise ValueError(f"{name} must be finite and nonnegative")
+        if render_weight == 0 and cluster_weight == 0:
+            raise ValueError("cluster_weight and render_weight cannot both be zero")
+        if image_loss not in ('sinkhorn', 'sliced'):
+            raise ValueError("image_loss must be 'sinkhorn' or 'sliced'")
         self.backbone = backbone
-        self.cluster = BalancedClustering(dim, num_clus, epsilon, sinkhorn_iterations,
-                                          orthogonal_weight, round_assignments, sinkhorn_tolerance)
+        self.cluster = None
+        if cluster_weight > 0:
+            self.cluster = BalancedClustering(dim, num_clus, epsilon, sinkhorn_iterations,
+                                              orthogonal_weight, round_assignments, sinkhorn_tolerance)
+        self.cluster_weight = cluster_weight
         self.render_weight = render_weight
         self.checkpoint_rendering = checkpoint_rendering
-        self.color = UNetTransformer(dim, 3, d_dims=color_dims[:3], u_dims=color_dims[3:])
-        self.render = PointRenderer(render_cfg)
-        if image_loss == 'sinkhorn':
-            self.fitting = ImageWassersteinLoss(blur=image_blur, backend=ot_backend)
-        elif image_loss == 'sliced':
-            self.fitting = SlicedImageLoss(num_projections)
-        else:
-            raise ValueError("image_loss must be 'sinkhorn' or 'sliced'")
+        self.color = self.render = self.fitting = None
+        if render_weight > 0:
+            self.color = UNetTransformer(dim, 3, d_dims=color_dims[:3], u_dims=color_dims[3:])
+            self.render = PointRenderer(render_cfg)
+            if image_loss == 'sinkhorn':
+                self.fitting = ImageWassersteinLoss(blur=image_blur, backend=ot_backend)
+            else:
+                self.fitting = SlicedImageLoss(num_projections)
         self.to(get_module_device(backbone))
 
     def _render_view(self, ndc, colors):
@@ -292,31 +302,35 @@ class CluRender(nn.Module):
         if K.shape != (batch, views, 3, 3):
             raise ValueError("Intrinsics must be (B, 3, 3) or (B, V, 3, 3)")
         height, width = images.shape[-2:]
-        if (height, width) != self.render.image_size:
+        if self.render is not None and (height, width) != self.render.image_size:
             raise ValueError("Target image dimensions must match render_size")
         wise = out[1]
         trans_loss = points.new_zeros(())
         if len(out) > 2 and out[2] is not None:
             trans_loss = 0.001 * feature_transform_regularizer(out[2])
-        xyz = points.transpose(1, 2)
-        colors = self.color(xyz, wise.transpose(1, 2)).sigmoid().transpose(1, 2)
-        view_losses = []
-        coverage = []
-        for view in range(views):
-            camera_points = transform_points_tsfm(xyz, tsfms[:, view])
-            ndc = points_to_ndc(camera_points, K[:, view], [height, width])
-            if self.checkpoint_rendering and torch.is_grad_enabled() and colors.requires_grad:
-                image, visible = checkpoint(self._render_view, ndc, colors, use_reentrant=False)
-            else:
-                image, visible = self._render_view(ndc, colors)
-            view_losses.append(self.fitting(image, images[:, view]))
-            coverage.append(visible)
-        loss_clu, clustering_details = self.cluster(wise, points, return_details=True)
-        loss_render = torch.stack(view_losses).sum()
-        total = loss_clu + self.render_weight * loss_render + trans_loss
+        loss_render = coverage = assignment_error = loss_clu = points.new_zeros(())
+        if self.render is not None:
+            xyz = points.transpose(1, 2)
+            colors = self.color(xyz, wise.transpose(1, 2)).sigmoid().transpose(1, 2)
+            view_losses = []
+            visible_rays = []
+            for view in range(views):
+                camera_points = transform_points_tsfm(xyz, tsfms[:, view])
+                ndc = points_to_ndc(camera_points, K[:, view], [height, width])
+                if self.checkpoint_rendering and torch.is_grad_enabled() and colors.requires_grad:
+                    image, visible = checkpoint(self._render_view, ndc, colors, use_reentrant=False)
+                else:
+                    image, visible = self._render_view(ndc, colors)
+                view_losses.append(self.fitting(image, images[:, view]))
+                visible_rays.append(visible)
+            loss_render = torch.stack(view_losses).sum()
+            coverage = torch.stack(visible_rays).mean()
+        if self.cluster is not None:
+            loss_clu, clustering_details = self.cluster(wise, points, return_details=True)
+            assignment_error = clustering_details["unrounded_marginal_error"]
+        total = self.cluster_weight * loss_clu + self.render_weight * loss_render + trans_loss
         if return_details:
             return {"loss": total, "clustering": loss_clu, "rendering": loss_render,
-                    "transform": trans_loss, "coverage": torch.stack(coverage).mean(),
-                    "assignment_error": clustering_details["unrounded_marginal_error"],
+                    "transform": trans_loss, "coverage": coverage, "assignment_error": assignment_error,
                     "batch_size": points.new_tensor(batch)}
         return total

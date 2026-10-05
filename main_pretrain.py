@@ -46,7 +46,9 @@ def parser():
     p.add_argument("--sinkhorn-tolerance", type=float, default=0.01,
                    help="Stop clustering Sinkhorn below this relative marginal error (0: run every iteration)")
     p.add_argument("--orthogonal-weight", type=float, default=0.01)
-    p.add_argument("--render-weight", type=float, default=1.0, help="Weight of the rendering loss")
+    p.add_argument("--render-weight", type=float, default=1.0, help="Weight of the rendering loss (0 removes it)")
+    p.add_argument("--cluster-weight", type=float, default=1.0,
+                   help="Weight of the clustering loss, including orthogonality (0 removes it)")
     p.add_argument("--round-assignments", action=argparse.BooleanOptionalAction, default=True,
                    help="Enforce clustering marginals after the fixed Sinkhorn budget")
     p.add_argument("--renderer", choices=("pytorch3d", "torch"), default="pytorch3d")
@@ -96,7 +98,8 @@ def build_model(args):
                      sinkhorn_iterations=args.sinkhorn_iterations, orthogonal_weight=args.orthogonal_weight,
                      color_dims=args.color_dims, round_assignments=args.round_assignments,
                      checkpoint_rendering=args.checkpoint_rendering,
-                     sinkhorn_tolerance=args.sinkhorn_tolerance, render_weight=args.render_weight)
+                     sinkhorn_tolerance=args.sinkhorn_tolerance, render_weight=args.render_weight,
+                     cluster_weight=args.cluster_weight)
 
 
 def atomic_save(value, path):
@@ -171,11 +174,12 @@ def resolve_args(args, checkpoint=None):
     if args.emb_dims < 2 or args.seed < 0:
         raise ValueError("emb-dims must be at least 2 and seed must be nonnegative")
     for name in ("lr", "weight_decay", "lr_gamma", "epsilon", "sinkhorn_tolerance", "orthogonal_weight",
-                 "render_weight", "radius", "sigma", "background", "image_blur"):
+                 "render_weight", "cluster_weight", "radius", "sigma", "background", "image_blur"):
         if not math.isfinite(getattr(args, name)):
             raise ValueError(f"{name} must be finite")
     if (min(args.epsilon, args.radius, args.sigma, args.image_blur) <= 0
-            or min(args.sinkhorn_tolerance, args.orthogonal_weight, args.render_weight) < 0):
+            or min(args.sinkhorn_tolerance, args.orthogonal_weight, args.render_weight, args.cluster_weight) < 0
+            or args.render_weight == args.cluster_weight == 0):
         raise ValueError("Invalid transport, splat, regularization or loss-weight settings")
     if not 0 <= args.background <= 1:
         raise ValueError("background must be in [0, 1]")

@@ -62,12 +62,30 @@ def subsample(points, count, pool=None, generator=None):
 
 
 def build_optimizer(model, args):
-    """SGD (DGCNN's fine-tuning default) or AdamW, with cosine decay to min_lr."""
+    """SGD (DGCNN's fine-tuning default) or AdamW, with cosine decay to min_lr.
+
+    ``args.encoder_lr_scale`` (default 1) multiplies the encoder's learning
+    rate; the heads keep ``args.lr``.
+    """
+    scale = getattr(args, "encoder_lr_scale", 1.0)
+    params = model.parameters()
+    if scale != 1:
+        encoder = {id(p) for p in model.encoder.parameters()}
+        params = [{"params": [p for p in model.parameters() if id(p) not in encoder]},
+                  {"params": list(model.encoder.parameters()), "lr": args.lr * scale}]
     if args.optimizer == "sgd":
-        optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.weight_decay)
+        optimizer = torch.optim.SGD(params, lr=args.lr, momentum=0.9, weight_decay=args.weight_decay)
     else:
-        optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+        optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=args.weight_decay)
     return optimizer, torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs, eta_min=args.min_lr)
+
+
+def set_encoder_frozen(model, frozen):
+    """Freeze the encoder for linear probing: no gradients and fixed BatchNorm
+    statistics. Call after model.train()."""
+    model.encoder.requires_grad_(not frozen)
+    if frozen:
+        model.encoder.eval()
 
 
 def part_mask(categories, device=None):

@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -37,10 +38,31 @@ def split_ids(root, allow_overlap=False):
     return result
 
 
+def stratified_subset(categories, fraction, seed):
+    """Sorted indices keeping round(fraction * n), at least one, objects of each category."""
+    rng = np.random.default_rng(seed)
+    keep = []
+    for category in np.unique(categories):
+        members = np.flatnonzero(categories == category)
+        keep.extend(rng.choice(members, max(1, round(fraction * len(members))), replace=False))
+    return np.sort(np.asarray(keep, dtype=np.int64))
+
+
 class ShapeNetPartText(Dataset):
-    def __init__(self, root, split="trainval", num_points=2048, seed=0, exclude_overlap=False):
+    """ShapeNetPart objects with fixed-size point samples.
+
+    With ``label_fraction`` < 1, only a class-stratified subset of objects keeps
+    its labels, and the subset is repeated ceil(1 / label_fraction) times so
+    that an epoch has about as many samples as a full-data epoch. Each repeat
+    draws a different point sample.
+    """
+
+    def __init__(self, root, split="trainval", num_points=2048, seed=0, exclude_overlap=False,
+                 label_fraction=1.0, label_seed=0):
         if split not in ("train", "val", "trainval", "test") or num_points < 1 or seed < 0:
             raise ValueError("Invalid split, point count or seed")
+        if not 0 < label_fraction <= 1 or label_seed < 0:
+            raise ValueError("label_fraction must be in (0, 1] and label_seed nonnegative")
         self.root = Path(root).resolve()
         splits = split_ids(self.root, allow_overlap=exclude_overlap)
         self.split_audit = {"original_counts": {key: len(value) for key, value in splits.items()},
@@ -59,6 +81,13 @@ class ShapeNetPartText(Dataset):
         self.num_points, self.seed = num_points, seed
         synsets = {item[1]: i for i, item in enumerate(CATEGORIES)}
         self.categories = np.array([synsets[item.split("/")[0]] for item in self.ids], dtype=np.int64)
+        self.repeats = 1
+        if label_fraction < 1:
+            keep = stratified_subset(self.categories, label_fraction, label_seed)
+            self.ids, self.categories = [self.ids[i] for i in keep], self.categories[keep]
+            self.repeats = math.ceil(1 / label_fraction)
+            self.split_audit.update(label_fraction=label_fraction, label_seed=label_seed,
+                                    labeled_objects=len(self.ids), repeats=self.repeats)
         self.paths = [self.root / (item + ".txt") for item in self.ids]
         self.label_paths = None
         if not self.paths[0].exists() and (self.root / self.ids[0].split("/")[0] / "points").is_dir():
@@ -72,15 +101,17 @@ class ShapeNetPartText(Dataset):
             # Labels are separate files; their changes must invalidate feature caches.
             records += [("local-one-based-labels:" + name, path.stat().st_size, path.stat().st_mtime_ns)
                         for name, path in zip(self.ids, self.label_paths)]
-        self.fingerprint = hashlib.sha256(json.dumps({
-            "root": str(self.root), "records": records, "points": num_points, "seed": seed,
-            "sampling": "uniform-random-fixed-per-object", "normalization": "center-unit-radius",
-        }, sort_keys=True).encode()).hexdigest()
+        description = {"root": str(self.root), "records": records, "points": num_points, "seed": seed,
+                       "sampling": "uniform-random-fixed-per-object", "normalization": "center-unit-radius"}
+        if label_fraction < 1:
+            description.update(label_fraction=label_fraction, label_seed=label_seed)
+        self.fingerprint = hashlib.sha256(json.dumps(description, sort_keys=True).encode()).hexdigest()
 
     def __len__(self):
-        return len(self.ids)
+        return len(self.ids) * self.repeats
 
     def __getitem__(self, index):
+        repeat, index = divmod(index, len(self.ids))
         raw = np.loadtxt(self.paths[index], dtype=np.float32, ndmin=2)
         columns = 3 if self.label_paths is not None else 7
         if raw.shape[1] != columns or not len(raw) or not np.isfinite(raw).all():
@@ -110,7 +141,8 @@ class ShapeNetPartText(Dataset):
         points /= radius
         # Stable across processes, worker counts, split combinations and root locations.
         object_seed = int.from_bytes(hashlib.sha256(self.ids[index].encode()).digest()[:8], "little")
-        rng = np.random.default_rng(np.random.SeedSequence([self.seed, object_seed]))
+        # The first repeat keeps the full-data sample, so label_fraction=1 is unchanged.
+        rng = np.random.default_rng(np.random.SeedSequence([self.seed, object_seed] + ([repeat] if repeat else [])))
         choice = rng.choice(len(points), self.num_points, replace=len(points) < self.num_points)
         return {"points": points[choice].T.copy(), "parts": parts[choice], "category": category}
 

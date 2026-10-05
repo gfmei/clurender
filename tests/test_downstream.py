@@ -149,6 +149,27 @@ def test_part_segmentation_finetuning_reports_last_and_best_mious(tmp_path, part
     for key in ("last_epoch", "best_epoch_test_selected"):
         assert 0 <= results[key]["instance_miou"] <= 1 and results[key]["objects"] == 2
     assert json.loads((tmp_path / "seg/split_audit.json").read_text())["effective_counts"]["test"] == 2
+    args.output, args.label_fraction = str(tmp_path / "few"), .5
+    assert main_finetune_partseg.run(args)["label_fraction"] == .5
+    assert json.loads((tmp_path / "few/split_audit.json").read_text())["labeled_objects"] == 2
+
+
+def test_label_fraction_keeps_a_stratified_subset_repeated_with_new_samples(part_root):
+    from datasets.shapenetpart import ShapeNetPartText, stratified_subset
+
+    categories = np.repeat([0, 1, 2], [100, 10, 1])
+    subset = stratified_subset(categories, .05, seed=0)
+    assert np.bincount(categories[subset]).tolist() == [5, 1, 1]
+    assert np.array_equal(subset, stratified_subset(categories, .05, seed=0))
+    assert not np.array_equal(subset, stratified_subset(categories, .05, seed=1))
+    full = ShapeNetPartText(part_root, "trainval", 32)
+    half = ShapeNetPartText(part_root, "trainval", 32, label_fraction=.5)
+    assert len(half.ids) == 2 and len(half) == 4 and half.fingerprint != full.fingerprint
+    # The first repeat keeps the full-data sample; later repeats draw new points.
+    np.testing.assert_array_equal(half[0]["points"], full[full.ids.index(half.ids[0])]["points"])
+    assert not np.array_equal(half[0]["points"], half[2]["points"])
+    with pytest.raises(ValueError, match="label_fraction"):
+        ShapeNetPartText(part_root, "trainval", 32, label_fraction=0)
 
 
 def test_svm_scores_frozen_features_on_modelnet40_files(tmp_path, monkeypatch):
@@ -166,7 +187,32 @@ def test_svm_scores_frozen_features_on_modelnet40_files(tmp_path, monkeypatch):
                                          "--output", str(tmp_path / "svm.json")])
     results = main_svm.run(args)
     assert json.loads((tmp_path / "svm.json").read_text()) == results and 0 <= results["accuracy"] <= 1
+    args.pretrained = None  # Randomly initialized reference encoder.
+    assert main_svm.run(args)["pretrained"] is None
+    args.pretrained = str(path)
     # Features that reveal the class: the SVM fit and scoring must then be exact.
     monkeypatch.setattr(main_svm, "features", lambda encoder, points, args: np.eye(5)[labels])
     results = main_svm.run(args)
     assert results["accuracy"] == 1 and results["class_accuracy"] == 1
+
+
+def test_frozen_encoder_epochs_keep_pretrained_weights_and_statistics(tmp_path, part_root):
+    encoder, path = small_encoder_file(tmp_path)
+    args = main_finetune_partseg.parser().parse_args([
+        "--root", str(part_root), "--output", str(tmp_path / "seg"), "--pretrained", str(path),
+        "--num-points", "32", "--epochs", "2", "--batch-size", "2", "--k", "4", "--emb-dims", "32",
+        "--workers", "0", "--device", "cpu", "--freeze-encoder-epochs", "2", "--encoder-lr-scale", "0.1"])
+    main_finetune_partseg.run(args)
+    tuned = torch.load(tmp_path / "seg" / "last.pth", weights_only=True)["model"]
+    # Weights and BatchNorm running statistics of the encoder stay exactly as pretrained.
+    for name, value in encoder.state_dict().items():
+        torch.testing.assert_close(tuned["encoder." + name], value, rtol=0, atol=0)
+    records = [json.loads(line) for line in (tmp_path / "seg" / "metrics.jsonl").read_text().splitlines()]
+    assert [r["encoder_frozen"] for r in records] == [True, True]
+    model = DGCNNPartSegmenter(emb_dims=32, k=4)
+    optimizer, _ = main_finetune_partseg.build_optimizer(model, args)
+    assert [group["lr"] for group in optimizer.param_groups] == pytest.approx([args.lr, args.lr * 0.1])
+    assert len(optimizer.param_groups[1]["params"]) == len(list(model.encoder.parameters()))
+    with pytest.raises(ValueError, match="freeze-encoder-epochs"):
+        args.freeze_encoder_epochs = 3
+        main_finetune_partseg.run(args)

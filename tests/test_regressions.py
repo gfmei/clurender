@@ -237,21 +237,32 @@ def test_clustering_objective_ignores_world_translation():
     torch.testing.assert_close(moved, loss, atol=1e-4, rtol=1e-4)
 
 
-def test_render_weight_scales_only_the_rendering_term():
+def test_loss_weights_scale_their_terms_and_zero_removes_the_branch():
     transforms, K = orbit_cameras(2, 8)
     inputs = (torch.rand(2, 3, 32) - .5, torch.rand(2, 2, 3, 8, 8),
               torch.from_numpy(transforms).unsqueeze(0).repeat(2, 1, 1, 1),
               torch.from_numpy(K).unsqueeze(0).repeat(2, 1, 1, 1))
-    for weight in (.25, 0.):
+    for render_weight, cluster_weight in ((.25, 1.), (0., 1.), (1., .5), (1., 0.)):
         model = CluRender(DGCNN(32, 4), 32, 4, RenderConfig(render_size=8, backend="torch"),
-                          color_dims=(32, 24, 16, 16, 12, 8), render_weight=weight)
+                          color_dims=(32, 24, 16, 16, 12, 8), render_weight=render_weight,
+                          cluster_weight=cluster_weight)
+        assert (model.color is None) == (render_weight == 0) and (model.cluster is None) == (cluster_weight == 0)
         losses = model(*inputs, return_details=True)
-        torch.testing.assert_close(
-            losses["loss"], losses["clustering"] + weight * losses["rendering"] + losses["transform"])
-    losses["loss"].backward()
-    assert all(p.grad is None or not p.grad.any() for p in model.color.parameters())
-    with pytest.raises(ValueError, match="render_weight"):
-        CluRender(DGCNN(32, 4), 32, 4, RenderConfig(render_size=8, backend="torch"), render_weight=-1.)
+        torch.testing.assert_close(losses["loss"], cluster_weight * losses["clustering"]
+                                   + render_weight * losses["rendering"] + losses["transform"])
+        if render_weight == 0:
+            assert losses["rendering"] == 0 and losses["coverage"] == 0
+        if cluster_weight == 0:
+            assert losses["clustering"] == 0 and losses["assignment_error"] == 0
+        losses["loss"].backward()
+        # DistributedDataParallel fails on parameters that never receive a gradient.
+        assert all(p.grad is not None for p in model.parameters())
+    for weights in ({"render_weight": -1.}, {"cluster_weight": float("nan")},
+                    {"render_weight": 0., "cluster_weight": 0.}):
+        with pytest.raises(ValueError, match="weight"):
+            CluRender(DGCNN(32, 4), 32, 4, RenderConfig(render_size=8, backend="torch"), **weights)
+    with pytest.raises(ValueError, match="loss-weight"):
+        resolve_args(parser().parse_args(["--smoke", "--render-weight", "0", "--cluster-weight", "0"]))
 
 
 def test_legacy_ot_targets_give_each_point_unit_mass():
@@ -267,9 +278,9 @@ def test_resume_keeps_legacy_sinkhorn_budget_and_accepts_step_cap(tmp_path):
     resumed = resolve_args(parser().parse_args(["--resume", "saved.pth", "--steps-per-epoch", "2"]), checkpoint)
     assert resumed.steps_per_epoch == 2 and resumed.sinkhorn_tolerance == original.sinkhorn_tolerance
     legacy = copy.deepcopy(checkpoint)
-    del legacy["args"]["sinkhorn_tolerance"], legacy["args"]["render_weight"]
+    del legacy["args"]["sinkhorn_tolerance"], legacy["args"]["render_weight"], legacy["args"]["cluster_weight"]
     resumed = resolve_args(parser().parse_args(["--resume", "saved.pth"]), legacy)
-    assert resumed.sinkhorn_tolerance == 0 and resumed.render_weight == 1
+    assert resumed.sinkhorn_tolerance == 0 and resumed.render_weight == 1 and resumed.cluster_weight == 1
 
 
 def test_auto_device_is_saved_unresolved_so_resume_can_change_nodes(tmp_path):

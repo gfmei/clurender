@@ -170,7 +170,7 @@ of epochs. The main settings are:
 | `--num-views`, `--image-size` | 8, 256 | Views per object and their resolution |
 | `--epsilon` | 0.001 | Entropy of the clustering Sinkhorn |
 | `--orthogonal-weight` | 0.01 | Weight of the prototype regularizer |
-| `--render-weight` | 1.0 | Weight of the rendering loss |
+| `--cluster-weight`, `--render-weight` | 1.0, 1.0 | Weights of the clustering and rendering losses; 0 removes that branch (ablations) |
 | `--image-loss`, `--num-projections` | `sliced`, 128 | Sliced Wasserstein with 128 projections, or `sinkhorn` (entropic OT) |
 | `--lr`, `--lr-step`, `--lr-gamma` | 0.001, 20, 0.7 | AdamW with step decay |
 
@@ -200,6 +200,9 @@ A linear SVM is trained on frozen global features of the pretrained encoder.
 python main_svm.py --dataset modelnet40 --root data/modelnet40_ply_hdf5_2048 \
   --pretrained checkpoints/clurender/backbone.pth
 ```
+
+Without `--pretrained`, the SVM scores a randomly initialized encoder as a
+reference.
 
 ### Classification
 
@@ -239,6 +242,14 @@ Predictions are restricted to the parts of each object's category. The script
 reports point accuracy, class mIoU and instance mIoU. `--exclude-overlap`
 removes the objects that the train/val lists repeat or share with the test list
 from training.
+
+For label-efficient part segmentation, `--label-fraction 0.01` trains on a
+class-stratified 1% of the training objects (`--label-seed` selects the
+subset); the subset is repeated so that each epoch has about as many samples
+as a full-data epoch. `--freeze-encoder-epochs N` trains only the head for the
+first N epochs before fine-tuning the whole network, and `--encoder-lr-scale`
+sets the encoder's learning rate relative to `--lr` (linear probing followed by
+fine-tuning).
 
 `main_partseg_probe.py` provides a frozen-encoder alternative, which trains
 only a linear per-point classifier on the pretrained features.

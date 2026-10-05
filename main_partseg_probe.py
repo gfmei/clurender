@@ -113,20 +113,29 @@ def cache_features(encoder, dataset, cache_root, encoder_hash, dim, args):
     return directory
 
 
-def load_cache(directory, device):
+def load_cache(directory, device, chunk=256):
     # Keep CPU data in RAM, or the complete feature matrix on the allocated GPU
     # when it fits. Training one linear layer needs little additional memory.
-    features = torch.from_numpy(np.load(directory / "features.npy"))
+    # GPU copies stream from a memory map, so host memory stays far below the
+    # size of the feature matrix.
+    mapped = np.load(directory / "features.npy", mmap_mode="r")
     parts = torch.from_numpy(np.load(directory / "parts.npy").astype(np.int64))
     categories = torch.from_numpy(np.load(directory / "categories.npy"))
     residence = torch.device("cpu")
     if device.startswith("cuda"):
         torch.cuda.empty_cache()
         free, _ = torch.cuda.mem_get_info(torch.device(device))
-        required = features.numel() * features.element_size() + parts.numel() * 8
+        required = mapped.size * mapped.itemsize + parts.numel() * 8
         if required + 3 * 1024**3 < free:
             residence = torch.device(device)
-            features, parts, categories = (item.to(residence) for item in (features, parts, categories))
+    if residence.type == "cuda":
+        features = torch.empty(mapped.shape, dtype=torch.float16, device=residence)
+        for start in range(0, len(mapped), chunk):
+            features[start:start + chunk] = torch.from_numpy(np.array(mapped[start:start + chunk]))
+        parts, categories = parts.to(residence), categories.to(residence)
+    else:
+        features = torch.from_numpy(np.load(directory / "features.npy"))
+    del mapped
     print(f"Loaded {len(features)} objects; feature storage: {residence}", flush=True)
     return features, parts, categories
 
