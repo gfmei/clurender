@@ -12,11 +12,17 @@ license) for batches of equally sized point clouds:
   Stages from ``full_attention_from`` on, which hold few points after
   downsampling, attend over the whole cloud instead;
 - octree depthwise convolution (CPE) and 3 x 3 x 3 convolutions: a kernel
-  over the 27 voxel offsets, applied to each point's k nearest neighbors
-  (neighbors in the same offset bin are averaged);
+  over the 27 voxel offsets, applied to each point's k nearest neighbors.
+  Neighbors in the same offset bin are averaged; a neighbor more than one
+  voxel away falls into the outer bin of its direction, so in sparse regions
+  the kernel reaches beyond the 3 x 3 x 3 voxel neighborhood;
 - stride-2 octree convolution: pooling ``stride`` consecutive points along
-  the curve, which keeps every sample at the same size;
+  the curve (rather than the eight children of an octree node), which keeps
+  every sample at the same size;
 - octree upsampling in the FPN head: the exact inverse of that pooling.
+
+Unlike OctFormer's patch embedding, the two-layer convolutional stem does not
+downsample, so the first stage attends over all input points.
 
 The voxel size doubles at every level. ``forward`` returns DGCNN's interface:
 max-pooled global features, per-point features in input order and, with
@@ -31,6 +37,7 @@ from models.common import square_distance
 from models.serialization import CURVES, curve_key
 
 MASKED = -1e4  # Finite, like OctFormer's -1e3: fully padded windows stay finite.
+MAX_KEY_BITS = 21  # Per axis: three axes must fit the 63 value bits of an int64 key.
 
 
 def gather_points(x, index):
@@ -47,13 +54,16 @@ class Level:
         origin = xyz.amin(1, keepdim=True)
         fine = torch.floor((xyz - origin) / (voxel / 2 ** refine_bits)).long()
         bits = max(1, int(fine.max().item()).bit_length())
+        if bits > MAX_KEY_BITS:
+            raise ValueError(f"The cloud spans {2 ** (bits - refine_bits)} voxels per axis; curve keys support "
+                             f"{2 ** (MAX_KEY_BITS - refine_bits)}. Normalize it or enlarge the voxel size.")
         # A fine key orders cells exactly like the voxel key and breaks ties spatially.
         self.order = curve_key(fine, bits, curve).argsort(dim=1)
         self.xyz = gather_points(xyz, self.order)
         self.grid = torch.floor((self.xyz - origin) / voxel).long()
         self.voxel = voxel
-        distance, neighbors = square_distance(self.xyz, self.xyz).topk(min(k, xyz.shape[1]), dim=-1, largest=False)
-        self.neighbors = neighbors
+        self.neighbors = square_distance(self.xyz, self.xyz).topk(min(k, xyz.shape[1]), dim=-1, largest=False).indices
+        neighbors = self.neighbors
         offset = torch.round((gather_points(self.xyz, neighbors) - self.xyz.unsqueeze(2)) / voxel).clamp(-1, 1).long() + 1
         self.cells = offset[..., 0] * 9 + offset[..., 1] * 3 + offset[..., 2]
         counts = torch.zeros(*self.cells.shape[:2], 27, device=xyz.device).scatter_add_(

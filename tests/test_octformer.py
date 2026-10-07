@@ -84,6 +84,9 @@ def test_point_counts_that_do_not_fill_windows_or_pooling_groups():
     assert per_point.shape == (2, 32, 50) and torch.isfinite(per_point).all()
     with pytest.raises(ValueError, match="heads"):
         small(channels=(15, 32))
+    # Curve keys would overflow int64 for clouds of over 2**15 voxels per axis.
+    with pytest.raises(ValueError, match="voxels per axis"):
+        Level(torch.tensor([[[0., 0., 0.], [1e4, 0., 0.]]]), 0.25, "z", 1)
 
 
 TINY = ["--octformer-channels", "16", "32", "--octformer-blocks", "1", "1", "--octformer-heads", "2", "4",
