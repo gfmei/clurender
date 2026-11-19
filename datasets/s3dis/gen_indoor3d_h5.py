@@ -21,7 +21,7 @@ from datasets.s3dis import data_prep_util
 import indoor3d_util
 
 # Constants
-ROOT_DIR = '/data/disk1/data/Stanford3dDataset'
+ROOT_DIR = 'data/Stanford3dDataset'
 data_dir = ROOT_DIR
 indoor3d_data_dir = os.path.join(data_dir, 'stanford_indoor3d')
 NUM_POINT = 4096
@@ -55,7 +55,6 @@ h5_index = 0  # state: the next h5 file to save
 
 
 def insert_batch(data, label, last_batch=False):
-    global h5_batch_data, h5_batch_label
     global buffer_size, h5_index
     data_size = data.shape[0]
     # If there is enough space, just insert

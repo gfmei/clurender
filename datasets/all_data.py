@@ -238,7 +238,6 @@ def load_color_semseg():
             for _ in range(0, img_size):
                 color = semseg_colors[color_index]
                 label = partseg_labels[label_index]
-                length = len(str(label))
                 cv2.rectangle(img, (column_index, row_index), (column_index + color_size, row_index + color_size),
                               color=(int(color[0]), int(color[1]), int(color[2])), thickness=-1)
                 img = cv2.putText(img, label, (column_index + int(color_size * 1.15), row_index + int(color_size / 2)),

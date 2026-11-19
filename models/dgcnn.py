@@ -17,6 +17,8 @@ class DGCNN(nn.Module):
     def __init__(self, emb_dims, k, dropout=0.5, num_cls=-1):
         super(DGCNN, self).__init__()
         self.k = k
+        self.emb_dims = emb_dims
+        self.level_dims = (64, 64, 128, 256)  # x1..x4 returned with return_levels
         self.conv1 = nn.Sequential(nn.Conv2d(6, 64, kernel_size=1, bias=False),
                                    nn.BatchNorm2d(64),
                                    nn.LeakyReLU(negative_slope=0.2))
@@ -43,7 +45,9 @@ class DGCNN(nn.Module):
             self.linear3 = nn.Linear(256, num_cls)
         self.cls = num_cls
 
-    def forward(self, x):
+    def forward(self, x, return_levels=False):
+        """Return (global, per-point) features; with return_levels, also the
+        four EdgeConv outputs (x1..x4) that segmentation heads consume."""
         batch_size = x.size(0)
         x = get_graph_feature(x, k=self.k)
         x = self.conv1(x)
@@ -64,17 +68,17 @@ class DGCNN(nn.Module):
         x = torch.cat((x1, x2, x3, x4), dim=1)
         x = self.conv5(x)
         feat = x
-        # x1 = F.adaptive_max_pool1d(x, 1).view(batch_size, -1)
-        # x2 = F.adaptive_avg_pool1d(x, 1).view(batch_size, -1)
-        # x = torch.cat((x1, x2), 1)
         x = F.adaptive_max_pool1d(x, 1).view(batch_size, -1)
         if self.cls != -1:
+            # linear1 takes max- and average-pooled features (2 * emb_dims).
+            x = torch.cat((x, F.adaptive_avg_pool1d(feat, 1).view(batch_size, -1)), 1)
             x = F.leaky_relu(self.bn6(self.linear1(x)), negative_slope=0.2)
             x = self.dp1(x)
             x = F.leaky_relu(self.bn7(self.linear2(x)), negative_slope=0.2)
             x = self.dp2(x)
             x = self.linear3(x)
-
+        if return_levels:
+            return x, feat, (x1, x2, x3, x4)
         return x, feat
 
 

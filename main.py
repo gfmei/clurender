@@ -56,7 +56,7 @@ def vis(args):
                 feat_list.append(geometric_feats)
                 xyz_list.append(xyz.squeeze(0).cpu().numpy())
         features = torch.cat(feat_list, dim=0).cpu().numpy()
-        get_colored_point_cloud_pca(xyz_list, features, f'dgmn', num)
+        get_colored_point_cloud_pca(xyz_list, features, 'dgmn', num)
 
 
 def visual_tsne(args, data):
@@ -116,7 +116,7 @@ def plot_with_labels(low_d_weights, labels, num_classes=40, dsname='ModelNet40')
     plt.clim(0.5, num_classes + 0.5)
     # plt.title('Ours')
     plt.axis('off')
-    plt.savefig('/home/gmei/Data/data/dgclu.pdf')
+    plt.savefig('dgclu.pdf')
     plt.show()
 
 
@@ -276,7 +276,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Point Cloud Recognition')
     # dataset
     parser.add_argument('--root', type=str,
-                        default='/data/disk1/data', help="dataset path")
+                        default='data', help="dataset path")
     parser.add_argument('--dataset', type=str, default='modelnet', metavar='N',
                         choices=['shapenet', 'modelnet'],
                         help='Dataset to use, [pointnet, dgcnn]')

@@ -11,7 +11,7 @@ import os
 import sys
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = '/home/gmei/Data/data'
+ROOT_DIR = 'data'
 sys.path.append(BASE_DIR)
 
 # -----------------------------------------------------------------------------

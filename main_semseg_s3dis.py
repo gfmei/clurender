@@ -12,9 +12,7 @@ import numpy as np
 import sklearn.metrics as metrics
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
-from plyfile import PlyData, PlyElement
 from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -203,7 +201,6 @@ def test(args, io):
             device = torch.device("cuda" if args.cuda else "cpu")
 
             # Try to load models
-            semseg_colors = test_loader.dataset.semseg_colors
             if args.model == 'dgcnn':
                 model = DGCNNSegS3dis(args).to(device)
             else:
@@ -264,7 +261,7 @@ def test(args, io):
 if __name__ == "__main__":
     # Training settings
     parser = argparse.ArgumentParser(description='Point Cloud Part Segmentation')
-    parser.add_argument('--root', type=str, default='/data/disk1/data/Stanford3dDataset', metavar='N',
+    parser.add_argument('--root', type=str, default='data/Stanford3dDataset', metavar='N',
                         help='path of dataset')
     parser.add_argument('--exp_name', type=str, default='dgcnn_SegS3dis', metavar='N',
                         help='Name of the experiment')  # dgcnn_SegS3dis

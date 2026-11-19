@@ -5,149 +5,19 @@
 # @Email   : Guofeng.Mei@student.uts.edu.au
 # @File    : clurender.py
 # @Software: PyCharm
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.nn import TransformerEncoderLayer
-from torch_geometric.nn import knn_interpolate
+from torch.utils.checkpoint import checkpoint
 
 from models.common import (square_distance, sinkhorn, get_module_device, feature_transform_regularizer,
-                           transform_points_tsfm, points_to_ndc, farthest_point_sample, index_points)
+                           transform_points_tsfm, points_to_ndc)
 from models.renderer import PointRenderer
-
-
-class TransformerLayer(nn.Module):
-    def __init__(self, dim_in, dim_out):
-        super(TransformerLayer, self).__init__()
-        self.dim_in = dim_in
-        self.dim_out = dim_out
-        self.query = nn.Conv1d(dim_in, dim_out, kernel_size=1)
-        self.key = nn.Conv1d(dim_in, dim_out, kernel_size=1)
-        self.value = nn.Conv1d(dim_in, dim_out, kernel_size=1)
-        self.fc = nn.Conv1d(dim_out, dim_out, kernel_size=1)
-
-    def forward(self, x):
-        q = self.query(x)
-        k = self.key(x)
-        v = self.value(x)
-
-        attn_weights = F.softmax(torch.bmm(q.permute(0, 2, 1), k), dim=-1)
-        attn_output = torch.bmm(v, attn_weights.permute(0, 2, 1))
-        attn_output = self.fc(attn_output)
-
-        return attn_output + x
-
-
-class FurthestDownSampling(nn.Module):
-    def __init__(self, num_points, is_center=True):
-        super(FurthestDownSampling, self).__init__()
-        self.num_points = num_points
-        self.is_center = is_center
-
-    def forward(self, points, features):
-        points = points.transpose(-1, -2)
-        features = features.transpose(-1, -2)
-        idx = farthest_point_sample(points, self.num_points, is_center=self.is_center)
-
-        sampled_points = index_points(points, idx)
-        sampled_features = index_points(features, idx)
-
-        return sampled_points, sampled_features
-
-
-class TransformerPropagation(nn.Module):
-    def __init__(self, dim_in, dim_out):
-        super(TransformerPropagation, self).__init__()
-        self.conv1 = nn.Conv1d(dim_in, dim_out, kernel_size=1)
-        self.transformer1 = TransformerLayer(dim_out, dim_out)
-        self.conv2 = nn.Conv1d(dim_out, dim_out, kernel_size=1)
-        self.transformer2 = TransformerLayer(dim_out, dim_out)
-
-    def forward(self, x, skip_connection):
-        x = self.conv1(x)
-        x = self.transformer1(x)
-        x = self.conv2(x)
-        x = self.transformer2(x)
-
-        # Upsample and concatenate skip connection
-        upsampled = F.interpolate(x, scale_factor=4, mode='linear', align_corners=False)
-        merged = torch.cat([upsampled, skip_connection], dim=1)
-
-        return merged
-
-
-class PointTransformer(nn.Module):
-    def __init__(self, dim_in, dim_out):
-        super(PointTransformer, self).__init__()
-        self.conv1 = nn.Conv1d(dim_in, dim_out, kernel_size=1)
-        self.transformer1 = TransformerLayer(dim_out, dim_out)
-        self.conv2 = nn.Conv1d(dim_out, dim_out, kernel_size=1)
-        self.transformer2 = TransformerLayer(dim_out, dim_out)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.transformer1(x)
-        x = self.conv2(x)
-        x = self.transformer2(x)
-        return x
-
-
-class UNetTransformer(nn.Module):
-    def __init__(self, in_channels, out_channels, num_samples_list, d_dims, u_dims, num_heads, is_center=True):
-        super(UNetTransformer, self).__init__()
-        self.downsampling = nn.ModuleList()
-        self.upsampling = nn.ModuleList()
-        self.encoder_layers = nn.ModuleList()
-        self.decoder_layers = nn.ModuleList()
-        self.is_center = is_center
-        self.num_stages = len(num_samples_list)  # Number of downsampling stages
-
-        # Downsampling layers
-        self.conv = nn.Conv1d(in_channels, d_dims[0], kernel_size=1)
-        for i in range(self.num_stages):
-            self.downsampling.append(FurthestDownSampling(num_samples_list[i], self.is_center))
-            self.encoder_layers.append(TransformerEncoderLayer(d_dims[i], num_heads))
-
-        # Upsampling layers
-        for i in range(self.num_stages):
-            self.upsampling.append(TransformerPropagation(self.is_center))
-            self.decoder_layers.append(TransformerEncoderLayer(d_dims[-1], 8))
-            in_channels *= 2
-
-        self.final_conv = nn.Conv1d(in_channels, out_channels, kernel_size=1)
-
-    def forward(self, points, features):
-        skip_connections = []
-
-        # Downsample
-        sampled_points = points
-        ds_features = self.conv(features)
-        for i in range(self.num_stages):
-            # sample points and features
-            sampled_points, sampled_points = self.downsampling[i](sampled_points, ds_features)
-            skip_connections.append((sampled_points, sampled_points))
-            ds_features = self.encoder_layers[i](ds_features)
-
-        # Upsample
-        for i in range(self.num_stages - 1, -1, -1):
-            features = self.upsampling[i](sampled_points, features)
-            features += skip_connections[i]
-            features = self.decoder_layers[i](features)
-
-        # Final convolution
-        output = self.final_conv(features)
-
-        return output
-
-
-class PointFeaturePropagation(nn.Module):
-    def __init__(self):
-        super(TransformerPropagation, self).__init__()
-
-    def forward(self, sampled_points, upsampled_points, features):
-        # Point Feature Propagation implementation
-        upsampled_features = knn_interpolate(features, sampled_points, upsampled_points)
-        return upsampled_features
+from models.color import PointwiseDecoder, UNetTransformer
+from models.losses import (BalancedClustering, ImageWassersteinLoss, SlicedImageLoss, rendered_feature_error,
+                           round_transport_plan)
 
 
 def ot_assign(x, y, epsilon=1e-3, thresh=1e-3, max_iter=30, dst='fe'):
@@ -156,15 +26,27 @@ def ot_assign(x, y, epsilon=1e-3, thresh=1e-3, max_iter=30, dst='fe'):
     num_y = y.shape[-1]
     # both marginals are fixed with equal weights
     p = torch.empty(batch_size, num_x, dtype=torch.float,
-                    requires_grad=False, device=device).fill_(1.0 / num_x).squeeze()
+                    requires_grad=False, device=device).fill_(1.0 / num_x)
     q = torch.empty(batch_size, num_y, dtype=torch.float,
-                    requires_grad=False, device=device).fill_(1.0 / num_y).squeeze()
+                    requires_grad=False, device=device).fill_(1.0 / num_y)
     if dst == 'eu':
         cost = square_distance(x.transpose(-1, -2), y.transpose(-1, -2))
     else:
         cost = 2.0 - 2.0 * torch.einsum('bdn,bdm->bnm', x, y)
     gamma, loss = sinkhorn(cost, p, q, epsilon, thresh, max_iter)
     return gamma, loss
+
+
+def balanced_assign(x, y, dst='fe', max_iter=1000):
+    """Balanced pseudo-labels [b, k, n] for points x [b, d, n] and centers y [b, d, k].
+
+    Each point's labels sum to one even when Sinkhorn stops before converging.
+    """
+    gamma, _ = ot_assign(x, y, max_iter=max_iter, dst=dst)
+    batch, num_x, num_y = gamma.shape
+    gamma = round_transport_plan(gamma, gamma.new_full((batch, num_x), 1.0 / num_x),
+                                 gamma.new_full((batch, num_y), 1.0 / num_y))
+    return num_x * gamma.transpose(-1, -2)
 
 
 def dis_assign(x, y, tau=0.01, dst='eu'):
@@ -223,8 +105,7 @@ class PointCluOT(nn.Module):
         """
         num_clusters: int The number of clusters
         dim: int Dimension of descriptors
-        alpha: float Parameter of initialization. Larger value is harder assignment.
-        normalize_input: bool If true, descriptor-wise L2 normalization is applied to input.
+        ablation: str Cluster on 'xyz', 'fea' (features), or 'all' (both)
         """
         super().__init__()
         self.num_clusters = num_clusters
@@ -242,8 +123,7 @@ class PointCluOT(nn.Module):
             mu_xyz = torch.einsum('bkn,bdn->bdk', score, xyz) / pi  # [b, d, k]
             reg_xyz = 0.001 * regular(mu_xyz)
             with torch.no_grad():
-                assign_xyz, dis = ot_assign(xyz, mu_xyz.detach(), max_iter=25, dst='eu')
-                assign_xyz = num * assign_xyz.transpose(-1, -2)  # [b, k, n]
+                assign_xyz = balanced_assign(xyz, mu_xyz.detach(), dst='eu')  # [b, k, n]
         else:
             assign_xyz = torch.zeros_like(score).to(xyz)
             reg_xyz = torch.tensor(0.0).to(xyz)
@@ -253,8 +133,7 @@ class PointCluOT(nn.Module):
             n_mu = F.normalize(mu_fea, dim=1, p=2)
             reg_fea = regular(n_mu)
             with torch.no_grad():
-                assign_fea, dis = ot_assign(n_feature.detach(), n_mu.detach(), max_iter=25)
-                assign_fea = num * assign_fea.transpose(-1, -2)
+                assign_fea = balanced_assign(n_feature.detach(), n_mu.detach())
         else:
             assign_fea = torch.zeros_like(score).to(xyz)
             reg_fea = torch.tensor(0.0).to(xyz)
@@ -268,8 +147,7 @@ class PointCluDS(nn.Module):
         """
         num_clusters: int The number of clusters
         dim: int Dimension of descriptors
-        alpha: float Parameter of initialization. Larger value is harder assignment.
-        normalize_input: bool If true, descriptor-wise L2 normalization is applied to input.
+        ablation: str Cluster on 'xyz', 'fea' (features), or 'all' (both)
         """
         super().__init__()
         self.num_clusters = num_clusters
@@ -331,75 +209,174 @@ class ClusterNet(nn.Module):
         :return:
         """
         if return_embedding:
-            return self.backbone(x, True)
+            return self.backbone(x)[0]
         out = self.backbone(x)
-        trans_loss = torch.tensor(0.0, requires_grad=True)
+        trans_loss = x.new_zeros(())
         if len(out) == 2:
             feature, wise = out
         else:
             feature, wise, trans = out
             if trans is not None:
                 trans_loss = 0.001 * feature_transform_regularizer(trans)
-        loss_rq = self.cluster(wise, x)
+        loss_rq = self.cluster(wise, x[:, :3])
 
         return loss_rq, trans_loss
 
 
 class CluRender(nn.Module):
-    def __init__(self,
-                 backbone,
-                 dim=1024,
-                 num_clus=64,
-                 render_cfg=None,
-                 render_dim=3,
-                 c_type='ot'):
+    """Joint clustering and multi-view neural rendering pretraining.
+
+    ``points``: B x 3 x N, ``images``: B x V x 3 x H x W,
+    ``tsfms``: B x V x 4 x 4 world-to-camera OpenCV transforms,
+    ``K``: B x V x 3 x 3 (or shared B x 3 x 3) pixel intrinsics.
+    Lists of B-sized views are also accepted for the original interface.
+    With ``render_target="dino"`` the decoder predicts ``feature_dim`` features
+    per point, rendered on the ``feature_cfg`` grid against DINOv2 feature
+    maps (``feature_maps``, ``feature_coverage``, ``feature_K``) instead of
+    colors against the images.
+    The total loss is cluster_weight * clustering + render_weight * rendering
+    + transform; ``return_details`` reports the unweighted terms. A zero weight
+    removes that branch, so ablations spend no compute on it and
+    DistributedDataParallel sees no parameters without gradients.
+    """
+
+    def __init__(self, backbone, dim=1024, num_clus=64, render_cfg=None,
+                 render_dim=3, c_type='ot', image_loss='sinkhorn',
+                 ot_backend='auto', image_blur=0.01, num_projections=128,
+                 sinkhorn_iterations=2000, epsilon=0.001, orthogonal_weight=0.01,
+                 color_dims=(512, 256, 128, 128, 64, 32),
+                 round_assignments=True, checkpoint_rendering=False,
+                 sinkhorn_tolerance=0.01, render_weight=1.0, cluster_weight=1.0, ncut_weight=0.0, ncut_k=16,
+                 score_head='mlp', score_head_k=16, score_head_layers=4, score_head_delta=0.5,
+                 color_decoder='unet', render_target='rgb', feature_dim=64, feature_cfg=None):
         super().__init__()
+        if render_dim != 3 or c_type != 'ot':
+            raise ValueError("CluRender pretraining requires RGB output and OT clustering")
+        if len(color_dims) != 6:
+            raise ValueError("color_dims must contain six dimensions")
+        for name, weight in (("render_weight", render_weight), ("cluster_weight", cluster_weight)):
+            if not math.isfinite(weight) or weight < 0:
+                raise ValueError(f"{name} must be finite and nonnegative")
+        if render_weight == 0 and cluster_weight == 0:
+            raise ValueError("cluster_weight and render_weight cannot both be zero")
+        if image_loss not in ('sinkhorn', 'sliced'):
+            raise ValueError("image_loss must be 'sinkhorn' or 'sliced'")
+        if color_decoder not in ('unet', 'mlp'):
+            raise ValueError("color_decoder must be 'unet' or 'mlp'")
+        if render_target not in ('rgb', 'dino') or (render_target == 'dino' and render_weight > 0
+                                                    and (feature_cfg is None or feature_dim < 1)):
+            raise ValueError("render_target must be 'rgb', or 'dino' with feature_cfg and feature_dim")
+        self.render_target = render_target
         self.backbone = backbone
-        self.cluster = PointCluOT(num_clusters=num_clus, dim=dim)
-        self.color = CONV(in_size=dim, out_size=render_dim, hidden_size=dim // 2, used='proj')
-        self.render = PointRenderer(render_cfg)
-        self.c_type = c_type
-        device = get_module_device(backbone)
-        self.to(device)
+        self.cluster = None
+        if cluster_weight > 0:
+            self.cluster = BalancedClustering(dim, num_clus, epsilon, sinkhorn_iterations, orthogonal_weight,
+                                              round_assignments, sinkhorn_tolerance, ncut_weight, ncut_k,
+                                              score_head, score_head_k, score_head_layers, score_head_delta)
+        self.cluster_weight = cluster_weight
+        self.render_weight = render_weight
+        self.checkpoint_rendering = checkpoint_rendering
+        self.color = self.render = self.fitting = None
+        if render_weight > 0:
+            channels = 3 if render_target == 'rgb' else feature_dim
+            if color_decoder == 'mlp':
+                self.color = PointwiseDecoder(dim, channels)
+            else:
+                self.color = UNetTransformer(dim, channels, d_dims=color_dims[:3], u_dims=color_dims[3:])
+            self.render = PointRenderer(render_cfg if render_target == 'rgb' else feature_cfg)
+            if render_target == 'dino':
+                self.fitting = rendered_feature_error
+                # Start from a zero prediction, whose normalized error is exactly 1;
+                # a random head would begin tens of times higher and swamp clustering.
+                final = self.color.mlp[-1] if color_decoder == 'mlp' else self.color.final_conv
+                nn.init.zeros_(final.weight)
+                nn.init.zeros_(final.bias)
+            elif image_loss == 'sinkhorn':
+                self.fitting = ImageWassersteinLoss(blur=image_blur, backend=ot_backend)
+            else:
+                self.fitting = SlicedImageLoss(num_projections)
+        self.to(get_module_device(backbone))
 
-    def forward(self, points, images, tsfms, K, return_embedding=False):
-        """
-        :param images:
-        :param tsfms:
-        :param points: [bz, dim, num]
-        :param return_embedding:
-        :return:
-        """
-        if return_embedding:
-            return self.backbone(points, True)
+    def _render_view(self, ndc, colors):
+        rendered = self.render(ndc, colors, return_raster=False)
+        return rendered['feats'], rendered['valid_rays'].detach().mean()
+
+    def forward(self, points, images=None, tsfms=None, K=None, feature_maps=None, feature_coverage=None,
+                feature_K=None, return_embedding=False, return_details=False):
+        if points.ndim != 3 or points.shape[1] != 3:
+            raise ValueError("points must have shape (B, 3, N)")
         out = self.backbone(points)
-        trans_loss = torch.tensor(0.0, requires_grad=True)
-        if len(out) == 2:
-            feature, wise = out
-        else:
-            feature, wise, trans = out
-            if trans is not None:
-                trans_loss = 0.001 * feature_transform_regularizer(trans)
-        render_imgs = []
-        pcd_lists = [transform_points_tsfm(points.transpose(1, 2), tsfm) for tsfm in tsfms]
-        colors = self.color(wise)
-        B, _, H, W = images[0].shape
-        for i in range(len(tsfms)):
-            pcd_i = points_to_ndc(pcd_lists[i], K, [H, W])
-            render_imgs.append(self.render(pcd_i, colors))
-        loss_rq = self.cluster(wise, points)
-        trans_loss += loss_rq
-
-        return trans_loss
-
-
-if __name__ == '__main__':
-    # Example usage
-    in_channels = 3
-    out_channels = 1
-    N = 1024  # Number of input points
-    points = torch.randn(N, 3)  # Input point coordinates
-    features = torch.randn(N, in_channels)  # Input point features
-
-    model = UNetTransformer(in_channels, out_channels)
-    output = model(points, features)
+        if return_embedding:
+            return out[0]
+        if images is None or tsfms is None or K is None:
+            raise ValueError("Joint pretraining requires paired images, transforms, and intrinsics")
+        if isinstance(images, (list, tuple)):
+            images = torch.stack(images, dim=1)
+        if isinstance(tsfms, (list, tuple)):
+            tsfms = torch.stack(tsfms, dim=1)
+        if isinstance(K, (list, tuple)):
+            K = torch.stack(K, dim=1)
+        batch = points.shape[0]
+        if images.ndim != 5 or images.shape[0] != batch or images.shape[2] != 3:
+            raise ValueError("images must have shape (B, V, 3, H, W)")
+        views = images.shape[1]
+        if views == 0 or tsfms.shape != (batch, views, 4, 4):
+            raise ValueError("Provide one 4 x 4 world-to-camera transform per image")
+        if K.shape == (batch, 3, 3):
+            K = K.unsqueeze(1).expand(-1, views, -1, -1)
+        if K.shape != (batch, views, 3, 3):
+            raise ValueError("Intrinsics must be (B, 3, 3) or (B, V, 3, 3)")
+        height, width = images.shape[-2:]
+        if self.render_target == 'rgb' and self.render is not None and (height, width) != self.render.image_size:
+            raise ValueError("Target image dimensions must match render_size")
+        targets, cameras, size = images, K, (height, width)
+        if self.render_target == 'dino' and self.render is not None:
+            if feature_maps is None or feature_coverage is None or feature_K is None:
+                raise ValueError("Feature rendering needs feature_maps, feature_coverage and feature_K")
+            size = tuple(feature_maps.shape[-2:])
+            if (feature_maps.shape[:2] != (batch, views) or size != self.render.image_size
+                    or feature_coverage.shape != (batch, views) + size or feature_K.shape != (batch, views, 3, 3)):
+                raise ValueError("Feature maps, coverage and intrinsics must match the views and feature grid")
+            targets, cameras = feature_maps, feature_K
+        wise = out[1]
+        trans_loss = points.new_zeros(())
+        if len(out) > 2 and out[2] is not None:
+            trans_loss = 0.001 * feature_transform_regularizer(out[2])
+        loss_render = coverage = assignment_error = loss_clu = points.new_zeros(())
+        clustering_details = {}
+        if self.render is not None:
+            xyz = points.transpose(1, 2)
+            decoded = self.color(xyz, wise.transpose(1, 2))
+            if self.render_target == 'rgb':
+                colors = decoded.sigmoid().transpose(1, 2)
+            else:
+                # A constant channel renders each pixel's opacity for rendered_feature_error.
+                colors = torch.cat((decoded, decoded.new_ones(batch, 1, decoded.shape[-1])), 1).transpose(1, 2)
+            view_losses = []
+            visible_rays = []
+            for view in range(views):
+                camera_points = transform_points_tsfm(xyz, tsfms[:, view])
+                ndc = points_to_ndc(camera_points, cameras[:, view], list(size))
+                if self.checkpoint_rendering and torch.is_grad_enabled() and colors.requires_grad:
+                    image, visible = checkpoint(self._render_view, ndc, colors, use_reentrant=False)
+                else:
+                    image, visible = self._render_view(ndc, colors)
+                if self.render_target == 'rgb':
+                    view_losses.append(self.fitting(image, targets[:, view]))
+                else:
+                    view_losses.append(self.fitting(image, targets[:, view], feature_coverage[:, view]))
+                visible_rays.append(visible)
+            loss_render = torch.stack(view_losses).sum()
+            coverage = torch.stack(visible_rays).mean()
+        if self.cluster is not None:
+            loss_clu, clustering_details = self.cluster(wise, points, return_details=True)
+            assignment_error = clustering_details["unrounded_marginal_error"]
+        total = self.cluster_weight * loss_clu + self.render_weight * loss_render + trans_loss
+        if return_details:
+            details = {"loss": total, "clustering": loss_clu, "rendering": loss_render,
+                       "transform": trans_loss, "coverage": coverage, "assignment_error": assignment_error,
+                       "batch_size": points.new_tensor(batch)}
+            if "ncut" in clustering_details:
+                details["ncut"] = clustering_details["ncut"]
+            return details
+        return total
