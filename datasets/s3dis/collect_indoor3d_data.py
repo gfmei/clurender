@@ -16,7 +16,7 @@ SYNSET_DICT_DIR = Path(__file__).resolve().parent
 sys.path.append(os.path.abspath('../../'))
 import indoor3d_util
 # Constants
-ROOT_DIR = '/data/disk1/data'
+ROOT_DIR = 'data'
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH = os.path.join(ROOT_DIR, 'Stanford3dDataset')
 

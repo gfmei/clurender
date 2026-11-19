@@ -1,0 +1,15 @@
+.venv/
+.idea/
+.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+checkpoints/
+data/
+runs/
+cache/
+# Cluster-specific job scripts, settings and notes (kept locally, not published)
+scripts/
+configs/
+docs/leonardo.md
+docs/overview.png

@@ -7,6 +7,7 @@
 # @Software: PyCharm
 import os
 import random
+import threading
 from typing import List
 
 import numpy as np
@@ -88,32 +89,107 @@ def get_module_device(module):
     return next(module.parameters()).device
 
 
-def sinkhorn(cost, p, q, epsilon=1e-2, thresh=1e-2, max_iter=100):
-    # Initialise approximation vectors in log domain
-    u = torch.zeros_like(p).to(p)
-    v = torch.zeros_like(q).to(q)
-    # Stopping criterion, sinkhorn iterations
-    for i in range(max_iter):
-        u0, v0 = u, v
-        # u^{l+1} = a / (K v^l)
-        K = log_boltzmann_kernel(cost, u, v, epsilon)
-        u_ = torch.log(p + 1e-8) - torch.logsumexp(K, dim=-1)
-        u = epsilon * u_ + u
-        # v^{l+1} = b / (K^T u^(l+1))
-        Kt = log_boltzmann_kernel(cost, u, v, epsilon).transpose(-2, -1)
-        v_ = torch.log(q + 1e-8) - torch.logsumexp(Kt, dim=-1)
-        v = epsilon * v_ + v
-        # Size of the change we have performed on u
-        diff = torch.sum(torch.abs(u - u0), dim=-1) + torch.sum(torch.abs(v - v0), dim=-1)
-        mean_diff = torch.mean(diff)
-        if mean_diff.item() < thresh:
-            break
-    # Transport plan pi = diag(a)*K*diag(b)
-    K = log_boltzmann_kernel(cost, u, v, epsilon)
-    gamma = torch.exp(K)
-    # Sinkhorn distance
-    loss = torch.sum(gamma * cost, dim=(-2, -1))
-    return gamma, loss
+def _sinkhorn_iteration(cost, log_p, log_q, f, g, eps):
+    f = eps * (log_p - torch.logsumexp((g.unsqueeze(-2) - cost) / eps, dim=-1))
+    g = eps * (log_q - torch.logsumexp((f.unsqueeze(-1) - cost) / eps, dim=-2))
+    return f, g
+
+
+class _SinkhornGraph:
+    """``count`` Sinkhorn iterations captured as one CUDA graph.
+
+    On problems of the clustering's size, launching the dozen small kernels of
+    an iteration takes far longer than running them; replaying a captured
+    graph issues all of them at once.
+    """
+
+    def __init__(self, cost, log_p, log_q, epsilon, count):
+        self.cost, self.log_p, self.log_q = cost.clone(), log_p.clone(), log_q.clone()
+        self.f, self.g = torch.zeros_like(log_p), torch.zeros_like(log_q)
+
+        def iterations():
+            f, g = self.f, self.g
+            for _ in range(count):
+                f, g = _sinkhorn_iteration(self.cost, self.log_p, self.log_q, f, g, epsilon)
+            self.f.copy_(f)
+            self.g.copy_(g)
+
+        with torch.cuda.device(cost.device):
+            stream = torch.cuda.Stream()
+            stream.wait_stream(torch.cuda.current_stream())
+            with torch.cuda.stream(stream):
+                iterations()  # Warm-up allocations outside the capture.
+            torch.cuda.current_stream().wait_stream(stream)
+            self.graph = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(self.graph, capture_error_mode="thread_local"):
+                iterations()
+
+    def __call__(self, cost, log_p, log_q, f, g):
+        for static, value in ((self.cost, cost), (self.log_p, log_p), (self.log_q, log_q), (self.f, f), (self.g, g)):
+            static.copy_(value)
+        self.graph.replay()
+        return self.f.clone(), self.g.clone()
+
+
+_SINKHORN_GRAPHS = {}
+_SINKHORN_GRAPHS_LOCK = threading.Lock()
+
+
+def _sinkhorn_graph(cost, log_p, log_q, epsilon, count):
+    key = (tuple(cost.shape), cost.dtype, cost.device, float(epsilon), count)
+    with _SINKHORN_GRAPHS_LOCK:
+        if key not in _SINKHORN_GRAPHS:
+            _SINKHORN_GRAPHS[key] = _SinkhornGraph(cost, log_p, log_q, epsilon, count)
+        return _SINKHORN_GRAPHS[key]
+
+
+def sinkhorn(cost, p, q, epsilon=1e-2, thresh=1e-2, max_iter=100, check_every=1, anneal=False, use_graph=True):
+    """Log-domain transport with arbitrary leading batch dimensions.
+
+    ``thresh`` measures relative marginal error; zero runs a fixed iteration
+    budget. The error is checked every ``check_every`` iterations, since each
+    check synchronizes with the GPU. With ``anneal`` (epsilon scaling), the
+    first iterations use an entropy that starts at the largest cost and halves
+    each iteration down to ``epsilon``; the dual potentials carry over.
+    ``max_iter`` counts all iterations. On CUDA without autograd, each block
+    of ``check_every`` iterations at the target entropy replays a cached CUDA
+    graph (``use_graph``). Neither singleton batches nor singleton support
+    axes are squeezed.
+    """
+    if epsilon <= 0 or max_iter < 1 or thresh < 0 or check_every < 1:
+        raise ValueError("epsilon/max_iter/check_every must be positive and thresh nonnegative")
+    if cost.shape[-2:] != (p.shape[-1], q.shape[-1]):
+        raise ValueError("Transport cost and marginal shapes disagree")
+    schedule = []
+    if anneal:
+        scale = cost.detach().amax().item()
+        while scale > epsilon:
+            schedule.append(scale)
+            scale /= 2
+    log_p, log_q = p.log(), q.log()
+    # Dual potentials in cost units, so they carry over when epsilon changes.
+    f, g = torch.zeros_like(p), torch.zeros_like(q)
+    done = min(len(schedule), max_iter)
+    for eps in schedule[:done]:
+        f, g = _sinkhorn_iteration(cost, log_p, log_q, f, g, eps)
+    graph = None
+    if use_graph and cost.is_cuda and not (torch.is_grad_enabled() and cost.requires_grad):
+        graph = _sinkhorn_graph(cost, log_p, log_q, epsilon, check_every)
+    while done < max_iter:
+        block = min(check_every, max_iter - done)
+        if graph is not None and block == check_every:
+            f, g = graph(cost, log_p, log_q, f, g)
+        else:
+            for _ in range(block):
+                f, g = _sinkhorn_iteration(cost, log_p, log_q, f, g, epsilon)
+        done += block
+        if thresh > 0 and block == check_every:
+            log_plan = (f.unsqueeze(-1) + g.unsqueeze(-2) - cost) / epsilon
+            row_error = (torch.exp(torch.logsumexp(log_plan, -1) - log_p) - 1).abs().amax()
+            if row_error.item() < thresh:
+                break
+    gamma = ((f.unsqueeze(-1) + g.unsqueeze(-2) - cost) / epsilon).exp()
+    return gamma, (gamma * cost).sum(dim=(-2, -1))
 
 
 def feature_transform_regularizer(trans):
@@ -124,12 +200,10 @@ def feature_transform_regularizer(trans):
 
 
 def knn(x, k):
-    inner = -2 * torch.matmul(x.transpose(2, 1), x)
-    xx = torch.sum(x ** 2, dim=1, keepdim=True)
-    pairwise_distance = -xx - inner - xx.transpose(2, 1)
-
-    idx = pairwise_distance.topk(k=k, dim=-1)[1]  # (batch_size, num_points, k)
-    return idx
+    if x.ndim != 3 or not 1 <= k <= x.shape[-1]:
+        raise ValueError("Expected B x C x N features and 1 <= k <= N")
+    points = x.transpose(1, 2)
+    return square_distance(points, points).topk(k=k, dim=-1, largest=False).indices
 
 
 def square_distance(src, dst):
@@ -146,12 +220,14 @@ def square_distance(src, dst):
     Output:
         dist: per-point square distance, [B, N, M]
     """
-    B, N, _ = src.shape
-    _, M, _ = dst.shape
-    dist = -2 * torch.matmul(src, dst.permute(0, 2, 1))
-    dist += torch.sum(src ** 2, -1).view(B, N, 1)
-    dist += torch.sum(dst ** 2, -1).view(B, 1, M)
-    return dist
+    # A shared translation leaves distances unchanged, but avoids catastrophic
+    # cancellation when world coordinates are large compared with separations.
+    origin = src[:, :1].detach()
+    src, dst = src - origin, dst - origin
+    dist = (src.square().sum(-1, keepdim=True)
+            + dst.square().sum(-1).unsqueeze(-2)
+            - 2 * torch.matmul(src, dst.transpose(-1, -2)))
+    return dist.clamp_min(0)
 
 
 def get_graph_feature(x, k=20, idx=None, extra_dim=False):
@@ -179,34 +255,30 @@ def get_graph_feature(x, k=20, idx=None, extra_dim=False):
     return feature
 
 
+@torch.no_grad()
 def farthest_point_sample(xyz, npoint, is_center=False):
+    """Select distinct FPS indices from B x N x C points.
+
+    Center-based initialization chooses the first point furthest from the
+    mean; the mean itself is not a sampled point. Ties, including coincident
+    points, never cause an index to be selected twice.
     """
-    Input:
-        pts: pointcloud data, [B, N, 3]
-        npoint: number of samples
-    Return:
-        sub_xyz: sampled point cloud index, [B, npoint]
-    """
-    device = xyz.device
-    B, N, C = xyz.shape
-    centroids = torch.zeros(B, npoint, dtype=torch.long).to(device)
-    distance = torch.ones(B, N).to(xyz) * 1e10
-    batch_indices = torch.arange(B, dtype=torch.long).to(device)
+    if xyz.ndim != 3 or not 1 <= npoint <= xyz.shape[1]:
+        raise ValueError("Expected B x N x C points and 1 <= npoint <= N")
+    batch, count, _ = xyz.shape
+    centroids = torch.empty(batch, npoint, dtype=torch.long, device=xyz.device)
+    distance = xyz.new_full((batch, count), float("inf"))
+    batch_indices = torch.arange(batch, device=xyz.device)
     if is_center:
-        centroid = xyz.mean(1).view(B, 1, C)
-        dist = torch.sum((xyz - centroid) ** 2, -1)
-        mask = dist < distance
-        distance[mask] = dist[mask]
-        farthest = torch.max(distance, -1)[1]
+        farthest = (xyz - xyz.mean(1, keepdim=True)).square().sum(-1).argmax(-1)
     else:
-        farthest = torch.randint(0, N, (B,), dtype=torch.long).to(device)
+        farthest = torch.randint(count, (batch,), device=xyz.device)
     for i in range(npoint):
         centroids[:, i] = farthest
-        centroid = xyz[batch_indices, farthest, :].view(B, 1, C)
-        dist = torch.sum((xyz - centroid) ** 2, -1)
-        mask = dist < distance
-        distance[mask] = dist[mask]
-        farthest = torch.max(distance, -1)[1]
+        centroid = xyz[batch_indices, farthest].unsqueeze(1)
+        distance = torch.minimum(distance, (xyz - centroid).square().sum(-1))
+        distance[batch_indices, farthest] = -1
+        farthest = distance.argmax(-1)
     return centroids
 
 
@@ -229,53 +301,47 @@ def index_points(points, idx):
     return new_points
 
 
-def transform_points_tsfm(
-    points: torch.Tensor, viewpoint: torch.Tensor, inverse: bool = False
-):
-    N, H, W = viewpoint.shape
-    assert H == 4 and W == 4, "Rt is B x 4 x 4 "
-    t = viewpoint[:, :, 3]
-    r = viewpoint[:, :, 0:3]
+def transform_points_tsfm(points, viewpoint, inverse=False):
+    """Apply OpenCV world-to-camera matrices to row-vector XYZ points.
 
-    # transpose r to handle the fact that P in num_points x 3
-    # yT = (RX)T = XT @ RT
-    r = r.transpose(1, 2).contiguous()
-
-    # invert if needed
+    Inputs have shapes (..., N, 3) and (..., 4, 4). Positive camera Z
+    points forward; X points right and Y points down.
+    """
+    if points.shape[-1] != 3 or viewpoint.shape[-2:] != (4, 4):
+        raise ValueError("Expected XYZ points and 4 x 4 camera matrices")
+    rotation = viewpoint[..., :3, :3]
+    translation = viewpoint[..., :3, 3].unsqueeze(-2)
     if inverse:
-        points = points - t[:, None, :]
-        points = points.bmm(r.inverse())
-    else:
-        points = points.bmm(r)
-        points = points + t[:, None, :]
-
-    return points
+        return torch.linalg.solve(rotation, (points - translation).transpose(-1, -2)).transpose(-1, -2)
+    return points @ rotation.transpose(-1, -2) + translation
 
 
 def points_to_ndc(pts, K, img_dim: List[float], renderer: bool = True):
-    pts = pts.bmm(K.transpose(1, 2))
+    """Project OpenCV camera coordinates to PyTorch3D NDC.
 
-    x = pts[:, :, 0:1]
-    y = pts[:, :, 1:2]
-    z = pts[:, :, 2:3]
-
-    # remove very close z)
-    z_min = 1e-5
-    z = z.clamp(z_min)
-    # z = torch.where(z > 0, z.clamp(z_min), z - 1)
-
-    x = 2.0 * (x / z / img_dim[1]) - 1.0
-    y = 2.0 * (y / z / img_dim[0]) - 1.0
-
-    # apply negative for the pytorch3d renderer
+    Pixel centers use the integer-index convention (top-left center = (0, 0)).
+    The shorter image dimension spans [-1, 1]. Keep signed camera depth so
+    rasterizers can reject points behind the camera.
+    """
+    height, width = img_dim
+    if height <= 0 or width <= 0 or K.shape[-2:] != (3, 3):
+        raise ValueError("Expected positive image dimensions and 3 x 3 intrinsics")
+    projected = pts @ K.transpose(-1, -2)
+    depth = pts[..., 2:3]
+    denom = projected[..., 2:3]
+    denom = torch.where(denom >= 0, denom.clamp_min(1e-8), denom.clamp_max(-1e-8))
+    uv = projected[..., :2] / denom
+    center = pts.new_tensor([(width - 1) / 2, (height - 1) / 2])
+    xy = (uv - center) * (2.0 / min(height, width))
     if renderer:
-        ndc = torch.cat([-x, -y, z], dim=2)
-    else:
-        ndc = torch.cat((x, y, z), dim=2)
-    return ndc
+        xy = -xy
+    return torch.cat((xy, depth), dim=-1)
 
 
-def op_loss(rd_imgs, gt_imgs, lam=0.1):
-    bz, _, w, h = rd_imgs[0].shape
-    return
-
+def op_loss(rd_imgs, gt_imgs, lam=0.5):
+    """Sum the color/position Wasserstein fitting loss across views."""
+    from models.losses import ImageWassersteinLoss
+    if len(rd_imgs) != len(gt_imgs) or len(rd_imgs) == 0:
+        raise ValueError("Expected the same nonzero number of rendered and target views")
+    criterion = ImageWassersteinLoss(position_weight=lam)
+    return torch.stack([criterion(x, y) for x, y in zip(rd_imgs, gt_imgs)]).sum()
